@@ -18,9 +18,10 @@ create table if not exists app_secret (
 );
 alter table app_secret enable row level security; -- no policy: not readable through the API
 
--- CHANGE THE PASSCODE below, then share it with your friends.
+-- CHANGE THE PASSCODE below, then share it with your friends. Do not commit the real passcode.
+-- Re-running the script replaces the stored passcode.
 insert into app_secret (id, passcode) values (1, 'CHANGE_ME')
-on conflict (id) do nothing;
+on conflict (id) do update set passcode = excluded.passcode;
 
 create or replace function save_map(p_name text, p_passcode text, p_tiles text)
 returns void
@@ -43,5 +44,12 @@ $$;
 revoke all on function save_map(text, text, text) from public;
 grant execute on function save_map(text, text, text) to anon;
 
--- Live updates for the app
-alter publication supabase_realtime add table maps;
+-- Live updates for the app (safe to re-run)
+do $$
+begin
+  alter publication supabase_realtime add table maps;
+exception when duplicate_object then null;
+end $$;
+
+-- Make the new function visible to the API immediately
+notify pgrst, 'reload schema';
