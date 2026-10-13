@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Squadrats</title>
+  </head>
+  <body>
+    <aside id="panel">
+      <h1>Squadrats</h1>
+
+      <section>
+        <h2>Import my activities</h2>
+        <p class="hint">
+          Strava: Settings → My Account → Download or Delete Your Account → Request Your Archive, then drop the
+          zip here. GPX, FIT, TCX (and .gz) files work too. Everything is processed in your browser and stays on
+          this device.
+        </p>
+        <label>I am <select id="name"></select></label>
+        <div id="drop">Drop files here or click to choose</div>
+        <input id="files" type="file" multiple accept=".zip,.gpx,.fit,.tcx,.gz" hidden />
+        <div id="progress" class="hint"></div>
+      </section>
+
+      <section>
+        <h2>Layers</h2>
+        <label><input id="show14" type="checkbox" checked /> Squadrats (zoom 14)</label>
+        <label><input id="show17" type="checkbox" checked /> Squadratinhos (zoom 17, from zoom 12)</label>
+      </section>
+
+      <section>
+        <h2>People</h2>
+        <div id="people"></div>
+      </section>
+    </aside>
+    <div id="map"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

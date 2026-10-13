@@ -1,0 +1,25 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 14px; }
+body { display: flex; }
+#panel { width: 340px; padding: 12px 16px; overflow-y: auto; border-right: 1px solid #ddd; background: #fafafa; }
+#map { flex: 1; }
+h1 { margin: 0 0 8px; font-size: 22px; }
+h2 { margin: 16px 0 6px; font-size: 14px; text-transform: uppercase; color: #555; }
+label { display: block; margin: 4px 0; }
+input[type="text"], select { width: 100%; padding: 6px; margin-top: 2px; }
+.hint { color: #666; font-size: 12px; }
+#drop { border: 2px dashed #aaa; border-radius: 8px; padding: 18px; text-align: center; cursor: pointer; margin: 8px 0; }
+#drop.over { border-color: #2a9d8f; background: #e8f6f4; }
+.person { border: 1px solid #ddd; border-radius: 8px; padding: 8px; margin-bottom: 8px; background: #fff; }
+.person header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.person .swatch { width: 14px; height: 14px; border-radius: 3px; }
+.person table { width: 100%; margin-top: 6px; font-size: 12px; border-collapse: collapse; }
+.person td { padding: 1px 0; }
+.person td:last-child { text-align: right; }
+.person tr.go { cursor: pointer; }
+.person tr.go:hover { background: #eef6ff; }
+.person tr.go td:first-child { text-decoration: underline dotted; }
+@media (max-width: 700px) {
+  body { flex-direction: column-reverse; }
+  #panel { width: 100%; height: 45%; border-right: 0; border-top: 1px solid #ddd; }
+}
