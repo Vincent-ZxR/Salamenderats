@@ -14,7 +14,17 @@ npm test
 1. Pick who you are (Grégoire, Hugo, Thomas or Vincent), then drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your existing map.
 2. Your map and stats (squadrats, Übersquadrat, Yard, squadratinhos, Übersquadratinho, Yardinho) appear on your card. Click an Über/Yard row to zoom on it.
 
-Imported tiles are saved in the browser's local storage, so each person only sees their own data on their own device. Sharing maps between devices would need a small backend.
+Imported tiles are saved in the browser's local storage. With Supabase configured (below), each import is also shared: everyone sees everyone's maps and stats, and open pages update live.
+
+## Shared sync with Supabase
+
+1. Create a free project at supabase.com.
+2. In **SQL Editor**, run [supabase/schema.sql](./supabase/schema.sql) after changing `CHANGE_ME` to a group passcode of your choice.
+3. In **Project Settings → API**, copy the project URL and the `anon` public key.
+4. On Vercel (**Project → Settings → Environment Variables**) add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, then redeploy. For local development, copy `.env.example` to `.env.local` and fill it in.
+5. Share the passcode with your friends. The app asks for it the first time someone shares a map, then remembers it in that browser.
+
+Everyone can read all maps, but writes only go through the `save_map` function, which checks the passcode. Without these variables the app works in local-only mode.
 
 ## Deploy
 

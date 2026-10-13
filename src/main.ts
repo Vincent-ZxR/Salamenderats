@@ -1,7 +1,8 @@
 import "./style.css";
-import { parsePersonFile, toPersonFile, type PersonFile } from "./codec";
+import { decodeKeys, encodeKeys, parsePersonFile, toPersonFile, type PersonFile } from "./codec";
 import { MapView } from "./map";
 import { FRIENDS, makePerson, mergeInto, type Person } from "./person";
+import { fetchMaps, saveMap, subscribe, syncEnabled } from "./sync";
 import type { WorkerIn, WorkerOut } from "./import.worker";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -27,10 +28,19 @@ function refresh(fit?: Person) {
   if (fit) view.fitTo(fit);
 }
 
-function addTiles(name: string, tiles17: Set<number>): Person {
+/** Merges tiles into a person; `changed` is false when they were all known already. */
+function addTiles(name: string, tiles17: Set<number>): { person: Person; changed: boolean } {
   const idx = people.findIndex((p) => p.name === name);
-  people[idx] = mergeInto(people[idx], tiles17);
-  return people[idx];
+  const known = people[idx].tiles17;
+  let changed = false;
+  for (const k of tiles17) {
+    if (!known.has(k)) {
+      changed = true;
+      break;
+    }
+  }
+  if (changed) people[idx] = mergeInto(people[idx], tiles17);
+  return { person: people[idx], changed };
 }
 
 function renderList() {
@@ -104,10 +114,18 @@ function runImport(files: File[]) {
     }
     importing = false;
     worker.terminate();
-    const person = addTiles(name, new Set(m.tiles));
+    const { person } = addTiles(name, new Set(m.tiles));
     saveLocal();
-    progress.textContent = `Done: ${m.processed} activities imported for ${name}, ${m.skipped} skipped.`;
+    const summary = `Done: ${m.processed} activities imported for ${name}, ${m.skipped} skipped.`;
+    progress.textContent = summary;
     refresh(person);
+    if (syncEnabled) {
+      progress.textContent = `${summary} Sharing…`;
+      push(person).then(
+        () => (progress.textContent = `${summary} Shared with your friends ✓`),
+        (err: Error) => (progress.textContent = `${summary} Could not share: ${err.message}`),
+      );
+    }
   };
   worker.onerror = (e) => {
     importing = false;
@@ -137,6 +155,40 @@ drop.addEventListener("drop", (e) => {
   runImport([...(e.dataTransfer?.files ?? [])]);
 });
 
+const push = (person: Person) => saveMap(person.name, encodeKeys(person.tiles17));
+
+/** Merges everyone's shared tiles into the local view. Returns the people whose shared copy lacks local tiles. */
+async function pull(): Promise<Set<string>> {
+  const remote = await fetchMaps();
+  const behind = new Set(people.filter((p) => p.tiles17.size).map((p) => p.name));
+  let changed = false;
+  for (const r of remote) {
+    if (!people.some((p) => p.name === r.name)) continue;
+    const tiles = decodeKeys(r.tiles);
+    if (addTiles(r.name, tiles).changed) changed = true;
+    const local = people.find((p) => p.name === r.name)!;
+    if (local.tiles17.size === tiles.size) behind.delete(r.name);
+  }
+  if (changed) {
+    saveLocal();
+    refresh();
+  }
+  return behind;
+}
+
+function startSync() {
+  const sync = () => pull().catch((err: Error) => console.warn("Sync failed", err));
+  // A map imported before sharing existed is uploaded once for the person using this browser.
+  pull()
+    .then((behind) => {
+      const me = people.find((p) => p.name === nameSelect.value);
+      if (me && behind.has(me.name)) return push(me);
+    })
+    .catch((err: Error) => console.warn("Sync failed", err));
+  subscribe(sync);
+  window.addEventListener("focus", sync);
+}
+
 // Startup: restore what was imported earlier in this browser
 function init() {
   try {
@@ -150,6 +202,7 @@ function init() {
   }
   const me = people.find((p) => p.name === nameSelect.value);
   refresh(me?.tiles17.size ? me : undefined);
+  if (syncEnabled) startSync();
 }
 
 init();

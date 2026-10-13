@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
     "fflate": "^0.8.3",
     "fit-file-parser": "^6.2.2",
     "maplibre-gl": "^6.14.0"
