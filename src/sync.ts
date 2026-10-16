@@ -13,6 +13,22 @@ export interface RemoteMap {
   tiles: string;
 }
 
+export interface RemoteActivity {
+  id: string;
+  person: string;
+  filename: string;
+  format: "gpx" | "tcx" | "fit";
+  tiles: string;
+  imported_at: string;
+}
+
+export async function fetchActivities(): Promise<RemoteActivity[]> {
+  if (!client) return [];
+  const { data, error } = await client.from("activities").select("id,person,filename,format,tiles,imported_at");
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
 export async function fetchMaps(): Promise<RemoteMap[]> {
   if (!client) return [];
   const { data, error } = await client.from("maps").select("name,tiles");
@@ -41,10 +57,46 @@ export async function saveMap(name: string, tiles: string): Promise<void> {
   }
 }
 
+export async function saveActivity(
+  id: string,
+  person: string,
+  filename: string,
+  format: string,
+  tiles: string,
+): Promise<void> {
+  if (!client) return;
+  const code = passcode();
+  if (!code) throw new Error("no passcode given");
+  const { error } = await client.rpc("save_activity", {
+    p_id: id,
+    p_person: person,
+    p_passcode: code,
+    p_filename: filename,
+    p_format: format,
+    p_tiles: tiles,
+  });
+  if (error) {
+    if (/wrong passcode/i.test(error.message)) localStorage.removeItem(PASS_KEY);
+    throw new Error(error.message);
+  }
+}
+
+export async function deleteActivity(id: string, person: string): Promise<void> {
+  if (!client) return;
+  const code = passcode();
+  if (!code) throw new Error("no passcode given");
+  const { error } = await client.rpc("delete_activity", { p_id: id, p_person: person, p_passcode: code });
+  if (error) {
+    if (/wrong passcode/i.test(error.message)) localStorage.removeItem(PASS_KEY);
+    throw new Error(error.message);
+  }
+}
+
 /** Calls onChange whenever any map changes. The payload is ignored (it can be truncated); callers refetch. */
 export function subscribe(onChange: () => void): void {
   client
     ?.channel("maps-changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "maps" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "activities" }, onChange)
     .subscribe();
 }
