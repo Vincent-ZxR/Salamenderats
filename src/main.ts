@@ -1,39 +1,22 @@
 import "./style.css";
-import {
-  decodeKeys,
-  encodeKeys,
-  parseActivityFile,
-  parsePersonFile,
-  toActivityFile,
-  toPersonFile,
-  type ActivityFile,
-  type PersonFile,
-} from "./codec";
+import { decodeKeys, encodeKeys, parsePersonFile, toPersonFile, type PersonFile } from "./codec";
 import { MapView } from "./map";
-import { FRIENDS, makePerson, mergeInto, personFromActivities, type Activity, type Person } from "./person";
-import { fetchActivities, fetchMaps, saveActivity, deleteActivity, subscribe, syncEnabled } from "./sync";
+import { FRIENDS, makePerson, mergeInto, type Person } from "./person";
+import { fetchMaps, saveMap, subscribe, syncEnabled } from "./sync";
 import type { WorkerIn, WorkerOut } from "./import.worker";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const LOCAL_KEY = "squadrats.local";
-const ACTIVITIES_KEY = "squadrats.activities";
 const ME_KEY = "squadrats.me";
 
-let people: Person[] = FRIENDS.map((f) => makePerson(f.name, f.color, new Set()));
-const activities = new Map<string, Activity[]>();
+const people: Person[] = FRIENDS.map((f) => makePerson(f.name, f.color, new Set()));
 const view = new MapView($("map"));
-const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 
 function saveLocal() {
   try {
     const files = people.filter((p) => p.tiles17.size).map((p) => toPersonFile(p.name, p.tiles17));
     localStorage.setItem(LOCAL_KEY, JSON.stringify(files));
-    const imported = [...activities].flatMap(([name, items]) =>
-      items.map((activity) => ({ name, ...toActivityFile(activity) })),
-    );
-    localStorage.setItem(ACTIVITIES_KEY, JSON.stringify(imported));
   } catch {
     alert("Could not save your map in this browser (storage full).");
   }
@@ -60,26 +43,6 @@ function addTiles(name: string, tiles17: Set<number>): { person: Person; changed
   return { person: people[idx], changed };
 }
 
-function replaceFromActivities(name: string): void {
-  const idx = people.findIndex((p) => p.name === name);
-  const current = people[idx];
-  const next = personFromActivities(current, activities.get(name) ?? []);
-  if (next.tiles17.size || activities.has(name)) people[idx] = next;
-}
-
-function addActivity(name: string, activity: Activity): void {
-  const current = activities.get(name) ?? [];
-  if (!current.some((a) => a.id === activity.id)) current.push(activity);
-  activities.set(name, current);
-  replaceFromActivities(name);
-}
-
-function removeActivity(name: string, id: string): void {
-  const remaining = (activities.get(name) ?? []).filter((activity) => activity.id !== id);
-  activities.set(name, remaining);
-  replaceFromActivities(name);
-}
-
 function renderList() {
   $("people").innerHTML = people
     .map(
@@ -101,18 +64,6 @@ function renderList() {
     </div>`,
     )
     .join("");
-  const rows = FRIENDS.flatMap((friend) =>
-    (activities.get(friend.name) ?? []).map(
-      (activity) => `
-        <div class="activity" data-person="${friend.name}" data-id="${activity.id}">
-          <span class="swatch" style="background:${friend.color}"></span>
-          <span class="activity-name" title="${escapeHtml(activity.filename)}">${escapeHtml(activity.filename)}</span>
-          <small>${activity.format.toUpperCase()}</small>
-          <button data-act="delete-activity" title="Remove this activity">Delete</button>
-        </div>`,
-    ),
-  );
-  $("activities").innerHTML = rows.length ? rows.join("") : '<p class="hint">No activities imported yet.</p>';
 }
 
 $("people").addEventListener("click", (e) => {
@@ -134,26 +85,6 @@ $("people").addEventListener("click", (e) => {
     } else if (kind?.startsWith("yard") && stats.maxClusterBox) {
       view.fitToBox(stats.maxClusterBox, z);
     }
-  }
-});
-
-$("activities").addEventListener("click", (e) => {
-  const target = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-act='delete-activity']");
-  const row = target?.closest<HTMLElement>(".activity");
-  if (!target || !row) return;
-  const name = row.dataset.person!;
-  const id = row.dataset.id!;
-  const activity = (activities.get(name) ?? []).find((item) => item.id === id);
-  if (!activity || !window.confirm(`Remove ${activity.filename} from ${name}'s activities?`)) return;
-  removeActivity(name, id);
-  saveLocal();
-  refresh();
-  if (syncEnabled) {
-    progress.textContent = "Removing activity…";
-    deleteActivity(`${name}:${id}`, name).then(
-      () => (progress.textContent = "Activity removed and shared with your friends."),
-      (err: Error) => (progress.textContent = `Could not remove activity: ${err.message}`),
-    );
   }
 });
 
@@ -183,23 +114,14 @@ function runImport(files: File[]) {
     }
     importing = false;
     worker.terminate();
-    for (const imported of m.activities) {
-      addActivity(name, {
-        id: imported.id,
-        filename: imported.filename,
-        format: imported.format,
-        imported: new Date().toISOString(),
-        tiles17: new Set(imported.tiles),
-      });
-    }
-    const person = people.find((p) => p.name === name)!;
+    const { person } = addTiles(name, new Set(m.tiles));
     saveLocal();
     const summary = `Done: ${m.processed} activities imported for ${name}, ${m.skipped} skipped.`;
     progress.textContent = summary;
     refresh(person);
     if (syncEnabled) {
       progress.textContent = `${summary} Sharing…`;
-      Promise.all((activities.get(name) ?? []).map((activity) => pushActivity(name, activity))).then(
+      push(person).then(
         () => (progress.textContent = `${summary} Shared with your friends ✓`),
         (err: Error) => (progress.textContent = `${summary} Could not share: ${err.message}`),
       );
@@ -233,54 +155,35 @@ drop.addEventListener("drop", (e) => {
   runImport([...(e.dataTransfer?.files ?? [])]);
 });
 
-const pushActivity = (name: string, activity: Activity) =>
-  saveActivity(`${name}:${activity.id}`, name, activity.filename, activity.format, encodeKeys(activity.tiles17));
+const push = (person: Person) => saveMap(person.name, encodeKeys(person.tiles17));
 
-async function pull(): Promise<void> {
-  const remoteActivities = await fetchActivities();
-  const remotePeople = new Set<string>();
-  for (const remote of remoteActivities) {
-    if (!people.some((p) => p.name === remote.person)) continue;
-    remotePeople.add(remote.person);
-    addActivity(remote.person, {
-      id: remote.id.includes(":") ? remote.id.slice(remote.id.indexOf(":") + 1) : remote.id,
-      filename: remote.filename,
-      format: remote.format,
-      imported: remote.imported_at,
-      tiles17: decodeKeys(remote.tiles),
-    });
-  }
-  for (const name of remotePeople) replaceFromActivities(name);
-  const me = nameSelect.value;
-  for (const activity of activities.get(me) ?? []) {
-    if (!remoteActivities.some((remote) => remote.id === `${me}:${activity.id}`)) await pushActivity(me, activity);
-  }
-  // Backward compatibility for data written before activities were introduced.
+/** Merges everyone's shared tiles into the local view. Returns the people whose shared copy lacks local tiles. */
+async function pull(): Promise<Set<string>> {
   const remote = await fetchMaps();
+  const behind = new Set(people.filter((p) => p.tiles17.size).map((p) => p.name));
   let changed = false;
   for (const r of remote) {
-    if (activities.has(r.name)) continue;
     if (!people.some((p) => p.name === r.name)) continue;
     const tiles = decodeKeys(r.tiles);
-    const idx = people.findIndex((p) => p.name === r.name);
-    const current = people[idx];
-    const next = makePerson(current.name, current.color, tiles);
-    next.visible = current.visible;
-    if (current.tiles17.size !== next.tiles17.size || [...current.tiles17].some((tile) => !next.tiles17.has(tile))) {
-      people[idx] = next;
-      changed = true;
-    }
+    if (addTiles(r.name, tiles).changed) changed = true;
+    const local = people.find((p) => p.name === r.name)!;
+    if (local.tiles17.size === tiles.size) behind.delete(r.name);
   }
   if (changed) {
     saveLocal();
     refresh();
   }
+  return behind;
 }
 
 function startSync() {
   const sync = () => pull().catch((err: Error) => console.warn("Sync failed", err));
   // A map imported before sharing existed is uploaded once for the person using this browser.
   pull()
+    .then((behind) => {
+      const me = people.find((p) => p.name === nameSelect.value);
+      if (me && behind.has(me.name)) return push(me);
+    })
     .catch((err: Error) => console.warn("Sync failed", err));
   subscribe(sync);
   window.addEventListener("focus", sync);
@@ -293,13 +196,6 @@ function init() {
     for (const f of saved) {
       const parsed = parsePersonFile(f);
       if (people.some((p) => p.name === parsed.name)) addTiles(parsed.name, parsed.tiles17);
-    }
-    const savedActivities = JSON.parse(localStorage.getItem(ACTIVITIES_KEY) ?? "[]") as Array<
-      { name: string } & ActivityFile
-    >;
-    for (const saved of savedActivities) {
-      if (!people.some((p) => p.name === saved.name)) continue;
-      addActivity(saved.name, parseActivityFile(saved));
     }
   } catch (err) {
     console.warn("Could not read saved data", err);

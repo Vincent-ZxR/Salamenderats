@@ -1,14 +1,6 @@
 import { computeStats, type Stats } from "./stats";
 import { toSquadrats } from "./tiles";
 
-export interface Activity {
-  id: string;
-  filename: string;
-  format: "gpx" | "tcx" | "fit";
-  imported: string;
-  tiles17: Set<number>;
-}
-
 export interface Person {
   id: string;
   name: string;
@@ -45,14 +37,6 @@ export function mergeInto(person: Person, extra: Set<number>): Person {
   const merged = new Set(person.tiles17);
   for (const k of extra) merged.add(k);
   const updated = makePerson(person.name, person.color, merged);
-  updated.visible = person.visible;
-  return updated;
-}
-
-export function personFromActivities(person: Person, activities: Activity[]): Person {
-  const tiles = new Set<number>();
-  for (const activity of activities) for (const tile of activity.tiles17) tiles.add(tile);
-  const updated = makePerson(person.name, person.color, tiles);
   updated.visible = person.visible;
   return updated;
 }
