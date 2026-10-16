@@ -157,34 +157,31 @@ drop.addEventListener("drop", (e) => {
 
 const push = (person: Person) => saveMap(person.name, encodeKeys(person.tiles17));
 
-/** Merges everyone's shared tiles into the local view. Returns the people whose shared copy lacks local tiles. */
-async function pull(): Promise<Set<string>> {
+/** Replaces the cached view with the shared maps after a successful remote read. */
+async function pull(): Promise<void> {
   const remote = await fetchMaps();
-  const behind = new Set(people.filter((p) => p.tiles17.size).map((p) => p.name));
+  const remoteTiles = new Map(remote.map((r) => [r.name, decodeKeys(r.tiles)]));
   let changed = false;
-  for (const r of remote) {
-    if (!people.some((p) => p.name === r.name)) continue;
-    const tiles = decodeKeys(r.tiles);
-    if (addTiles(r.name, tiles).changed) changed = true;
-    const local = people.find((p) => p.name === r.name)!;
-    if (local.tiles17.size === tiles.size) behind.delete(r.name);
+  for (let idx = 0; idx < people.length; idx++) {
+    const person = people[idx];
+    const tiles = remoteTiles.get(person.name) ?? new Set<number>();
+    const same = person.tiles17.size === tiles.size && [...person.tiles17].every((tile) => tiles.has(tile));
+    if (!same) {
+      const replacement = makePerson(person.name, person.color, tiles);
+      replacement.visible = person.visible;
+      people[idx] = replacement;
+      changed = true;
+    }
   }
   if (changed) {
     saveLocal();
     refresh();
   }
-  return behind;
 }
 
 function startSync() {
   const sync = () => pull().catch((err: Error) => console.warn("Sync failed", err));
-  // A map imported before sharing existed is uploaded once for the person using this browser.
-  pull()
-    .then((behind) => {
-      const me = people.find((p) => p.name === nameSelect.value);
-      if (me && behind.has(me.name)) return push(me);
-    })
-    .catch((err: Error) => console.warn("Sync failed", err));
+  pull().catch((err: Error) => console.warn("Sync failed", err));
   subscribe(sync);
   window.addEventListener("focus", sync);
 }
