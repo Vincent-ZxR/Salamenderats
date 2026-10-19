@@ -25,6 +25,10 @@ export interface Stats {
   maxLineTiles: number[];
   /** Bounding box of the longest continuous line. */
   maxLineBox: TileBox | null;
+  /** Number of tiles in the longest straight (horizontal or vertical) run. */
+  maxStraight: number;
+  maxStraightTiles: number[];
+  maxStraightBox: TileBox | null;
 }
 
 /** Largest N x N block of visited tiles (dynamic programming on a sparse grid). */
@@ -170,11 +174,38 @@ export function maxLine(keys: Set<number>, z: number): { size: number; tiles: nu
   return { size: bestPath.length, tiles: bestPath, box };
 }
 
+/** Longest run of consecutive visited tiles along a single row or column. */
+export function maxStraight(keys: Set<number>, z: number): { size: number; tiles: number[]; box: TileBox | null } {
+  let best: number[] = [];
+  for (const k of keys) {
+    const x = xOf(k, z);
+    const y = yOf(k, z);
+    for (const [dx, dy] of [[1, 0], [0, 1]]) {
+      if (keys.has(keyOf(x - dx, y - dy, z))) continue;
+      const run = [k];
+      for (let n = keyOf(x + dx, y + dy, z), i = 2; keys.has(n); i++) {
+        run.push(n);
+        n = keyOf(x + dx * i, y + dy * i, z);
+      }
+      if (run.length > best.length) best = run;
+    }
+  }
+  if (!best.length) return { size: 0, tiles: [], box: null };
+  const xs = best.map((k) => xOf(k, z));
+  const ys = best.map((k) => yOf(k, z));
+  const box = { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  return { size: best.length, tiles: best, box };
+}
+
 export function computeStats(keys: Set<number>, z: number): Stats {
   const sq = maxSquare(keys, z);
   const cl = maxCluster(keys, z);
   const line = maxLine(keys, z);
+  const straight = maxStraight(keys, z);
   return {
+    maxStraight: straight.size,
+    maxStraightTiles: straight.tiles,
+    maxStraightBox: straight.box,
     maxLine: line.size,
     maxLineTiles: line.tiles,
     maxLineBox: line.box,

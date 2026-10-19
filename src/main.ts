@@ -117,6 +117,7 @@ function renderStats() {
         <tr class="go" data-kind="uber14" title="Zoom on the Übersquadrat"><td>Übersquadrat</td><td>${p.stats14.maxSquare} × ${p.stats14.maxSquare}</td></tr>
         <tr class="go" data-kind="yard14" title="Zoom on the Yard"><td>Yard</td><td>${p.stats14.maxCluster}</td></tr>
         <tr class="go" data-kind="line14" title="Zoom on the Ligne"><td>Ligne</td><td>${p.stats14.maxLine}</td></tr>
+        <tr class="go" data-kind="straight14" title="Zoom on the Dresta"><td>Dresta</td><td>${p.stats14.maxStraight}</td></tr>
       </table>
       <div class="sub">Squadratinhos</div>
       <table>
@@ -124,6 +125,7 @@ function renderStats() {
         <tr class="go" data-kind="uber17" title="Zoom on the Übersquadratinho"><td>Übersquadratinho</td><td>${p.stats17.maxSquare} × ${p.stats17.maxSquare}</td></tr>
         <tr class="go" data-kind="yard17" title="Zoom on the Yardinho"><td>Yardinho</td><td>${p.stats17.maxCluster}</td></tr>
         <tr class="go" data-kind="line17" title="Zoom on the Ligninho"><td>Ligninho</td><td>${p.stats17.maxLine}</td></tr>
+        <tr class="go" data-kind="straight17" title="Zoom on the Drestinho"><td>Drestinho</td><td>${p.stats17.maxStraight}</td></tr>
       </table>
     </div>`;
 }
@@ -160,6 +162,8 @@ $("stats").addEventListener("click", (e) => {
     void view.highlightYard(stats.maxClusterTiles, z, stats.maxClusterBox, current.color);
   } else if (kind.startsWith("line") && stats.maxLineBox) {
     void view.highlightRail(stats.maxLineTiles, z, stats.maxLineBox);
+  } else if (kind.startsWith("straight") && stats.maxStraightBox) {
+    void view.highlightRail(stats.maxStraightTiles, z, stats.maxStraightBox);
   }
 });
 

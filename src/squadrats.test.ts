@@ -79,6 +79,16 @@ describe("stats", () => {
     expect(s.maxLine).toBe(10);
     expect(s.maxLineBox).toMatchObject({ minX: 0, maxX: 9 });
   });
+
+  it("finds the longest straight horizontal or vertical run", () => {
+    const keys = new Set<number>();
+    for (let x = 0; x < 4; x++) keys.add(keyOf(x, 0, 14));
+    for (let y = 5; y < 11; y++) keys.add(keyOf(2, y, 14));
+    keys.add(keyOf(3, 7, 14));
+    const s = computeStats(keys, 14);
+    expect(s.maxStraight).toBe(6);
+    expect(s.maxStraightBox).toEqual({ minX: 2, minY: 5, maxX: 2, maxY: 10 });
+  });
 });
 
 describe("codec", () => {
