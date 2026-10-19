@@ -169,6 +169,18 @@ export class MapView {
     this.ids = [];
 
     const visible = people.filter((q) => q.visible);
+    if (!showMap) {
+      // Without the base map, keep the borders of every country as a reference.
+      const all = await loadAreas("countries");
+      const src = this.track("borders");
+      this.map.addSource(src, { type: "geojson", data: { type: "FeatureCollection", features: all.map((c) => c.country) } });
+      this.map.addLayer({
+        id: this.track("borders-line"),
+        type: "line",
+        source: src,
+        paint: { "line-color": "#888888", "line-width": 1 },
+      });
+    }
     if (areaSets.length) {
       // Same player colors as squadrats, with a lower opacity so the map stays readable.
       for (const [kind, areas] of areaSets) {
