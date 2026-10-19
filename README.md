@@ -35,4 +35,4 @@ It is a plain static Vite site, so any static host works (Vercel, Cloudflare Pag
 - Squadrats are zoom-14 Web Mercator tiles, squadratinhos are zoom-17 tiles. Only zoom-17 tiles are stored; zoom-14 is derived.
 - Tracks are interpolated between points so fast segments don't skip tiles; gaps over 5 zoom-17 tiles (about 1 km) are treated as GPS dropouts and ignored. Tick "Replace my existing map" when re-importing to discard previously imported tiles.
 - Übersquadrat / Übersquadratinho = largest fully-visited square; Yard / Yardinho = largest 4-connected group of visited tiles whose north, east, south, and west neighbours are also visited.
-- The base map uses the public OpenStreetMap tile server (fine for a few users). Change the source in [src/map.ts](./src/map.ts) for heavier use.
+- The base map uses the public OpenStreetMap tile server (fine for a few users). Visited-country boundaries are loaded from the public geo-countries GeoJSON dataset. Change the sources in [src/map.ts](./src/map.ts) for heavier use.
