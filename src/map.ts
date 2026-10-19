@@ -158,7 +158,7 @@ export class MapView {
     const version = ++this.renderVersion;
     await this.loaded;
     if (version !== this.renderVersion) return;
-    let countries: FeatureCollection<Polygon | MultiPolygon> | null = null;
+    let countryData: Promise<FeatureCollection<Polygon | MultiPolygon> | null> | null = null;
     if (showCountries) {
       this.countryData ??= fetch(COUNTRIES_URL)
         .then((response) => {
@@ -169,8 +169,7 @@ export class MapView {
           console.warn("Could not load country boundaries", err);
           return null;
         });
-      countries = await this.countryData;
-      if (version !== this.renderVersion) return;
+      countryData = this.countryData;
     }
     this.clearYardHighlight();
     this.people = people;
@@ -187,26 +186,6 @@ export class MapView {
     this.ids = [];
 
     const visible = people.filter((q) => q.visible);
-    if (showCountries && countries && visible.length) {
-      const groups = visitedCountries(countries, visible);
-      for (const [mask, features] of groups) {
-        const color = mixColor(visible.filter((_, i) => mask & (1 << i)));
-        const source = this.track(`countries-${mask}`);
-        this.map.addSource(source, { type: "geojson", data: { type: "FeatureCollection", features } });
-        this.map.addLayer({
-          id: this.track(`countries-${mask}-fill`),
-          type: "fill",
-          source,
-          paint: { "fill-color": color, "fill-opacity": 0.25, "fill-antialias": false },
-        });
-        this.map.addLayer({
-          id: this.track(`countries-${mask}-line`),
-          type: "line",
-          source,
-          paint: { "line-color": color, "line-width": 0.8, "line-opacity": 0.65 },
-        });
-      }
-    }
     if (show14) {
       const masks = new Map<number, number[]>();
       visible.forEach((p, i) => {
@@ -227,6 +206,12 @@ export class MapView {
       }
     }
     this.updateZ17();
+    if (countryData) {
+      void countryData.then((countries) => {
+        if (version !== this.renderVersion || !countries) return;
+        this.addVisitedCountries(countries, this.people.filter((person) => person.visible));
+      });
+    }
   }
 
   async highlightYard(tiles: number[], z: number, box: NonNullable<Person["stats14"]["maxClusterBox"]>, color: string): Promise<void> {
@@ -287,6 +272,27 @@ export class MapView {
   private track(id: string) {
     this.ids.push(id);
     return id;
+  }
+
+  private addVisitedCountries(countries: FeatureCollection<Polygon | MultiPolygon>, people: Person[]) {
+    const before = this.ids.find((id) => this.map.getLayer(id));
+    for (const [mask, features] of visitedCountries(countries, people)) {
+      const color = mixColor(people.filter((_, i) => mask & (1 << i)));
+      const source = this.track(`countries-${mask}`);
+      this.map.addSource(source, { type: "geojson", data: { type: "FeatureCollection", features } });
+      this.map.addLayer({
+        id: this.track(`countries-${mask}-fill`),
+        type: "fill",
+        source,
+        paint: { "fill-color": color, "fill-opacity": 0.25, "fill-antialias": false },
+      }, before);
+      this.map.addLayer({
+        id: this.track(`countries-${mask}-line`),
+        type: "line",
+        source,
+        paint: { "line-color": color, "line-width": 0.8, "line-opacity": 0.65 },
+      }, before);
+    }
   }
 
   private addSquadrats(id: string, color: string, fc: FC) {
