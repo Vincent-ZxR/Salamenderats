@@ -26,8 +26,8 @@ describe("visited countries", () => {
       { tiles14: new Set([keyOf(8390, 5495, 14), keyOf(8391, 5495, 14)]) },
     ]);
 
-    expect(groups.get(1)).toEqual([countries.features[0]]);
-    expect(groups.get(3)).toEqual([countries.features[1]]);
+    expect(groups.get(3)).toEqual([countries.features[0]]);
+    expect(groups.get(2)).toEqual([countries.features[1]]);
   });
 
   it("does not mark countries when a visited tile is outside their polygons", () => {
