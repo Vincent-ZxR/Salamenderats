@@ -78,12 +78,13 @@ export class MapView {
     this.map.on("moveend", () => this.updateZ17());
   }
 
-  async render(people: Person[], show14: boolean, show17: boolean, combined: Person | null): Promise<void> {
+  async render(people: Person[], show14: boolean, show17: boolean, showMap: boolean, combined: Person | null): Promise<void> {
     await this.loaded;
     this.clearYardHighlight();
     this.people = people;
     this.show14 = show14;
     this.show17 = show17;
+    this.map.setLayoutProperty("base", "visibility", showMap ? "visible" : "none");
 
     for (const id of this.ids) {
       if (this.map.getLayer(id)) this.map.removeLayer(id);
