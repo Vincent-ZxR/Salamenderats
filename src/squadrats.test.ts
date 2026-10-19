@@ -69,15 +69,22 @@ describe("stats", () => {
     expect(s.maxClusterBox).toEqual({ minX: 1, minY: 1, maxX: 3, maxY: 3 });
   });
 
-  it("finds the longest continuous line across branches and ignores separate lines", () => {
+  it("measures the longest line as the farthest distance inside one connected group", () => {
     const keys = new Set<number>();
     for (let x = 0; x < 10; x++) keys.add(keyOf(x, 5, 14));
-    keys.add(keyOf(4, 4, 14));
-    keys.add(keyOf(4, 3, 14));
     for (let x = 20; x < 24; x++) keys.add(keyOf(x, 0, 14));
     const s = computeStats(keys, 14);
-    expect(s.maxLine).toBe(10);
-    expect(s.maxLineBox).toMatchObject({ minX: 0, maxX: 9 });
+    expect(s.maxLine).toBe(9);
+    expect(s.maxLineBox).toEqual({ minX: 0, minY: 5, maxX: 9, maxY: 5 });
+    expect(s.maxLineTiles).toHaveLength(10);
+
+    // Adding tiles that link both groups can only make it longer.
+    for (let x = 10; x < 20; x++) keys.add(keyOf(x, 5, 14));
+    keys.add(keyOf(20, 4, 14));
+    keys.add(keyOf(20, 3, 14));
+    keys.add(keyOf(20, 2, 14));
+    keys.add(keyOf(20, 1, 14));
+    expect(computeStats(keys, 14).maxLine).toBeGreaterThan(9);
   });
 
   it("finds the longest straight horizontal or vertical run", () => {
