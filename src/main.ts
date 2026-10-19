@@ -49,8 +49,10 @@ function combinedPerson(): Person | null {
 }
 
 let current: Person | null = null;
+let activeKind: string | null = null;
 
 function refresh(fit?: Person) {
+  activeKind = null;
   current = combinedPerson();
   renderPlayers();
   renderStats();
@@ -114,12 +116,14 @@ function renderStats() {
         <tr class="go" data-kind="dense14" title="Zoom on the densest area"><td>All</td><td>${p.stats14.count}</td></tr>
         <tr class="go" data-kind="uber14" title="Zoom on the Übersquadrat"><td>Übersquadrat</td><td>${p.stats14.maxSquare} × ${p.stats14.maxSquare}</td></tr>
         <tr class="go" data-kind="yard14" title="Zoom on the Yard"><td>Yard</td><td>${p.stats14.maxCluster}</td></tr>
+        <tr class="go" data-kind="line14" title="Zoom on the Rail"><td>Rail</td><td>${p.stats14.maxLine}</td></tr>
       </table>
       <div class="sub">Squadratinhos</div>
       <table>
         <tr class="go" data-kind="dense17" title="Zoom on the densest area"><td>All</td><td>${p.stats17.count}</td></tr>
         <tr class="go" data-kind="uber17" title="Zoom on the Übersquadratinho"><td>Übersquadratinho</td><td>${p.stats17.maxSquare} × ${p.stats17.maxSquare}</td></tr>
         <tr class="go" data-kind="yard17" title="Zoom on the Yardinho"><td>Yardinho</td><td>${p.stats17.maxCluster}</td></tr>
+        <tr class="go" data-kind="line17" title="Zoom on the Railinho"><td>Railinho</td><td>${p.stats17.maxLine}</td></tr>
       </table>
     </div>`;
 }
@@ -139,14 +143,23 @@ $("stats").addEventListener("click", (e) => {
   if (!kind || !current) return;
   const z = kind.endsWith("17") ? 17 : 14;
   if (kind.startsWith("dense")) {
+    activeKind = null;
     void view.fitDensest(current, z);
     return;
   }
   const stats = z === 17 ? current.stats17 : current.stats14;
+  if (kind === activeKind) {
+    activeKind = null;
+    void view.clearHighlight();
+    return;
+  }
+  activeKind = kind;
   if (kind.startsWith("uber") && stats.maxSquareAt) {
     void view.highlightSquare(stats.maxSquareAt, stats.maxSquare, z, current.color);
   } else if (kind.startsWith("yard") && stats.maxClusterBox) {
     void view.highlightYard(stats.maxClusterTiles, z, stats.maxClusterBox, current.color);
+  } else if (kind.startsWith("line") && stats.maxLineBox) {
+    void view.highlightRail(stats.maxLineTiles, z, stats.maxLineBox);
   }
 });
 

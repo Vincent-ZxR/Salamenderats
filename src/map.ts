@@ -302,8 +302,56 @@ export class MapView {
     this.fitToBox({ minX: at.x, minY: at.y, maxX: at.x + size - 1, maxY: at.y + size - 1 }, z);
   }
 
+  /** Draws the rail as a thick contrasting line through its tile centres, plus its end points. */
+  async highlightRail(tiles: number[], z: number, box: NonNullable<Person["stats14"]["maxLineBox"]>): Promise<void> {
+    await this.loaded;
+    this.clearYardHighlight();
+    if (!tiles.length) return;
+    const coords = tiles.map((k) => tileToLonLat(xOf(k, z) + 0.5, yOf(k, z) + 0.5, z));
+    this.map.addSource("yard-highlight", {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } },
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: coords[0] } },
+          { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: coords[coords.length - 1] } },
+        ],
+      },
+    });
+    this.map.addLayer({
+      id: "yard-highlight-fill",
+      type: "line",
+      source: "yard-highlight",
+      filter: ["==", "$type", "LineString"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 11 },
+    });
+    this.map.addLayer({
+      id: "yard-highlight-line",
+      type: "line",
+      source: "yard-highlight",
+      filter: ["==", "$type", "LineString"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#d6182c", "line-width": 6 },
+    });
+    this.map.addLayer({
+      id: "yard-highlight-ends",
+      type: "circle",
+      source: "yard-highlight",
+      filter: ["==", "$type", "Point"],
+      paint: { "circle-radius": 8, "circle-color": "#d6182c", "circle-stroke-color": "#ffffff", "circle-stroke-width": 3 },
+    });
+    this.fitToBox(box, z);
+  }
+
+  async clearHighlight(): Promise<void> {
+    await this.loaded;
+    this.clearYardHighlight();
+  }
+
   private clearYardHighlight(): void {
-    for (const id of ["yard-highlight-line", "yard-highlight-fill"]) {
+    for (const id of ["yard-highlight-ends", "yard-highlight-line", "yard-highlight-fill"]) {
       if (this.map.getLayer(id)) this.map.removeLayer(id);
     }
     for (const s of ["yard-highlight", "yard-outline"]) {

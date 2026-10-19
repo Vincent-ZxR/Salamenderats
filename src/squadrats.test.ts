@@ -68,6 +68,17 @@ describe("stats", () => {
     expect(s.maxClusterTiles).toHaveLength(9);
     expect(s.maxClusterBox).toEqual({ minX: 1, minY: 1, maxX: 3, maxY: 3 });
   });
+
+  it("finds the longest continuous line across branches and ignores separate lines", () => {
+    const keys = new Set<number>();
+    for (let x = 0; x < 10; x++) keys.add(keyOf(x, 5, 14));
+    keys.add(keyOf(4, 4, 14));
+    keys.add(keyOf(4, 3, 14));
+    for (let x = 20; x < 24; x++) keys.add(keyOf(x, 0, 14));
+    const s = computeStats(keys, 14);
+    expect(s.maxLine).toBe(10);
+    expect(s.maxLineBox).toMatchObject({ minX: 0, maxX: 9 });
+  });
 });
 
 describe("codec", () => {
