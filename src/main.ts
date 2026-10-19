@@ -1,7 +1,7 @@
 import "./style.css";
 import { decodeKeys, encodeKeys, parsePersonFile, toPersonFile, type PersonFile } from "./codec";
 import { MapView } from "./map";
-import { FRIENDS, makePerson, mergeInto, type Person } from "./person";
+import { FRIENDS, makePerson, mergeInto, mixColor, type Person } from "./person";
 import { fetchMaps, saveMap, subscribe, syncEnabled } from "./sync";
 import type { WorkerIn, WorkerOut } from "./import.worker";
 
@@ -22,9 +22,38 @@ function saveLocal() {
   }
 }
 
+const SEL_KEY = "squadrats.selected";
+try {
+  const sel = JSON.parse(localStorage.getItem(SEL_KEY) ?? "null") as string[] | null;
+  if (Array.isArray(sel)) for (const p of people) p.visible = sel.includes(p.name);
+} catch {
+  /* keep defaults */
+}
+
+let combinedCache: { sources: Person[]; person: Person } | null = null;
+
+/** Person built from the union of the selected players' tiles (null when none selected). */
+function combinedPerson(): Person | null {
+  const sel = people.filter((p) => p.visible);
+  if (!sel.length) return null;
+  if (sel.length === 1) return sel[0];
+  if (combinedCache && combinedCache.sources.length === sel.length && sel.every((p, i) => p === combinedCache!.sources[i])) {
+    return combinedCache.person;
+  }
+  const union = new Set<number>();
+  for (const p of sel) for (const k of p.tiles17) union.add(k);
+  const person = makePerson(sel.map((p) => p.name).join("+"), mixColor(sel), union);
+  combinedCache = { sources: sel, person };
+  return person;
+}
+
+let current: Person | null = null;
+
 function refresh(fit?: Person) {
-  renderList();
-  void view.render(people, $<HTMLInputElement>("show14").checked, $<HTMLInputElement>("show17").checked);
+  current = combinedPerson();
+  renderPlayers();
+  renderStats();
+  void view.render(people, $<HTMLInputElement>("show14").checked, $<HTMLInputElement>("show17").checked, current);
   if (fit) view.fitTo(fit);
 }
 
@@ -43,49 +72,70 @@ function addTiles(name: string, tiles17: Set<number>): { person: Person; changed
   return { person: people[idx], changed };
 }
 
-function renderList() {
-  $("people").innerHTML = people
+function renderPlayers() {
+  $("players").innerHTML = people
     .map(
-      (p) => `
-    <div class="person" data-id="${p.id}">
-      <header>
-        <input type="checkbox" data-act="toggle" ${p.visible ? "checked" : ""} />
-        <span class="swatch" style="background:${p.color}"></span>
-        <span>${p.name}</span>
-      </header>
-      <table>
-        <tr><td>Squadrats</td><td>${p.stats14.count}</td></tr>
-        <tr class="go" data-act="go" data-kind="uber14" title="Zoom on the Übersquadrat"><td>Übersquadrat</td><td>${p.stats14.maxSquare} × ${p.stats14.maxSquare}</td></tr>
-        <tr class="go" data-act="go" data-kind="yard14" title="Zoom on the Yard"><td>Yard</td><td>${p.stats14.maxCluster}</td></tr>
-        <tr><td>Squadratinhos</td><td>${p.stats17.count}</td></tr>
-        <tr class="go" data-act="go" data-kind="uber17" title="Zoom on the Übersquadratinho"><td>Übersquadratinho</td><td>${p.stats17.maxSquare} × ${p.stats17.maxSquare}</td></tr>
-        <tr class="go" data-act="go" data-kind="yard17" title="Zoom on the Yardinho"><td>Yardinho</td><td>${p.stats17.maxCluster}</td></tr>
-      </table>
-    </div>`,
+      (p) =>
+        `<button type="button" class="player" role="switch" aria-pressed="${p.visible}" aria-checked="${p.visible}" data-name="${p.name}" style="--c:${p.color}"><span class="swatch"></span>${p.name}</button>`,
     )
     .join("");
 }
 
-$("people").addEventListener("click", (e) => {
-  const target = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
-  const act = target?.dataset.act;
-  const id = target?.closest<HTMLElement>(".person")?.dataset.id;
-  const person = people.find((p) => p.id === id);
-  if (!target || !act || !person) return;
-  if (act === "toggle") {
-    person.visible = (target as HTMLInputElement).checked;
-    refresh();
-  } else if (act === "go") {
-    const kind = target.dataset.kind;
-    const z = kind?.endsWith("17") ? 17 : 14;
-    const stats = z === 17 ? person.stats17 : person.stats14;
-    if (kind?.startsWith("uber") && stats.maxSquareAt) {
-      const { x, y } = stats.maxSquareAt;
-      view.fitToBox({ minX: x, minY: y, maxX: x + stats.maxSquare - 1, maxY: y + stats.maxSquare - 1 }, z);
-    } else if (kind?.startsWith("yard") && stats.maxClusterBox) {
-      view.fitToBox(stats.maxClusterBox, z);
-    }
+function renderStats() {
+  const sel = people.filter((p) => p.visible);
+  $("stats-title").textContent = sel.length ? `Stats · ${sel.map((p) => p.name).join(" + ")}` : "Stats";
+  if (!current) {
+    $("stats").innerHTML = `<div class="empty">Select at least one player.</div>`;
+    return;
   }
+  const p = current;
+  $("stats").innerHTML = `
+    <div class="card">
+      <div class="sub">Squadrats</div>
+      <table>
+        <tr class="go" data-kind="dense14" title="Zoom on the densest area"><td>All</td><td>${p.stats14.count}</td></tr>
+        <tr class="go" data-kind="uber14" title="Zoom on the Übersquadrat"><td>Übersquadrat</td><td>${p.stats14.maxSquare} × ${p.stats14.maxSquare}</td></tr>
+        <tr class="go" data-kind="yard14" title="Zoom on the Yard"><td>Yard</td><td>${p.stats14.maxCluster}</td></tr>
+      </table>
+      <div class="sub">Squadratinhos</div>
+      <table>
+        <tr class="go" data-kind="dense17" title="Zoom on the densest area"><td>All</td><td>${p.stats17.count}</td></tr>
+        <tr class="go" data-kind="uber17" title="Zoom on the Übersquadratinho"><td>Übersquadratinho</td><td>${p.stats17.maxSquare} × ${p.stats17.maxSquare}</td></tr>
+        <tr class="go" data-kind="yard17" title="Zoom on the Yardinho"><td>Yardinho</td><td>${p.stats17.maxCluster}</td></tr>
+      </table>
+    </div>`;
+}
+
+$("players").addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-name]");
+  const person = people.find((p) => p.name === btn?.dataset.name);
+  if (!person) return;
+  person.visible = !person.visible;
+  localStorage.setItem(SEL_KEY, JSON.stringify(people.filter((p) => p.visible).map((p) => p.name)));
+  refresh();
+});
+
+$("stats").addEventListener("click", (e) => {
+  const row = (e.target as HTMLElement).closest<HTMLElement>("tr.go");
+  const kind = row?.dataset.kind;
+  if (!kind || !current) return;
+  const z = kind.endsWith("17") ? 17 : 14;
+  if (kind.startsWith("dense")) {
+    void view.fitDensest(current, z);
+    return;
+  }
+  const stats = z === 17 ? current.stats17 : current.stats14;
+  if (kind.startsWith("uber") && stats.maxSquareAt) {
+    void view.highlightSquare(stats.maxSquareAt, stats.maxSquare, z, current.color);
+  } else if (kind.startsWith("yard") && stats.maxClusterBox) {
+    void view.highlightYard(stats.maxClusterTiles, z, stats.maxClusterBox, current.color);
+  }
+});
+
+const importDialog = $<HTMLDialogElement>("import-dialog");
+$("open-import").addEventListener("click", () => importDialog.showModal());
+importDialog.addEventListener("click", (e) => {
+  if (e.target === importDialog) importDialog.close();
 });
 
 $("show14").addEventListener("change", () => refresh());
@@ -105,6 +155,7 @@ function runImport(files: File[]) {
   const name = nameSelect.value;
   if (importing || !files.length) return;
   importing = true;
+  const replace = $<HTMLInputElement>("replace").checked;
   const worker = new Worker(new URL("./import.worker.ts", import.meta.url), { type: "module" });
   worker.onmessage = (e: MessageEvent<WorkerOut>) => {
     const m = e.data;
@@ -114,7 +165,14 @@ function runImport(files: File[]) {
     }
     importing = false;
     worker.terminate();
-    const { person } = addTiles(name, new Set(m.tiles));
+    const imported = new Set(m.tiles);
+    if (replace) {
+      const idx = people.findIndex((p) => p.name === name);
+      const fresh = makePerson(name, people[idx].color, imported);
+      fresh.visible = people[idx].visible;
+      people[idx] = fresh;
+    }
+    const { person } = addTiles(name, imported);
     saveLocal();
     const summary = `Done: ${m.processed} activities imported for ${name}, ${m.skipped} skipped.`;
     progress.textContent = summary;
@@ -123,7 +181,14 @@ function runImport(files: File[]) {
       progress.textContent = `${summary} Sharing…`;
       push(person).then(
         () => (progress.textContent = `${summary} Shared with your friends ✓`),
-        (err: Error) => (progress.textContent = `${summary} Could not share: ${err.message}`),
+        (err: Error) => {
+          if (/wrong passcode/i.test(err.message)) {
+            alert(
+              "Mot de passe incorrect. Vos activités ont été importées sur cet appareil, mais elles n'ont pas été partagées.",
+            );
+          }
+          progress.textContent = `${summary} Could not share: ${err.message}`;
+        },
       );
     }
   };

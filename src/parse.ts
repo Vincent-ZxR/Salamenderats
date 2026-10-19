@@ -25,6 +25,54 @@ export function* parseTcx(text: string): Generator<Point> {
   while ((m = re.exec(text))) yield [parseFloat(m[1]), parseFloat(m[2])];
 }
 
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field);
+      field = "";
+      rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field || row.length) rows.push([...row, field]);
+  return rows;
+}
+
+export const normalizeArchivePath = (name: string) => name.replace(/\\/g, "/").toLowerCase();
+
+/** Archive file names of virtual activities (Zwift etc.) listed in Strava's activities.csv. */
+export function virtualActivityFiles(csv: string): Set<string> {
+  const [header, ...rows] = parseCsv(csv.replace(/^\uFEFF/, ""));
+  const out = new Set<string>();
+  if (!header) return out;
+  // The archive is localized ("Vélo virtuel", "Nom du fichier"...), so locate columns by content when headers differ.
+  const named = header.findIndex((h) => /^(activity type|type d.activit)/i.test(h.trim()));
+  const type = named >= 0 ? named : 3;
+  const filePattern = /^activities[\\/]/i;
+  const file = header.findIndex((_, i) => rows.some((r) => filePattern.test(r[i] ?? "")));
+  if (file < 0) return out;
+  for (const r of rows) {
+    if (/virtu/i.test(r[type] ?? "") && r[file]) out.add(normalizeArchivePath(r[file]));
+  }
+  return out;
+}
+
 export async function parseFit(data: Uint8Array): Promise<Point[]> {
   const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
   const parsed = await new FitParser({ force: true, mode: "list" }).parseAsync(buffer);

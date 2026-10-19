@@ -1,5 +1,5 @@
 import { Unzip, UnzipInflate, UnzipPassThrough, gunzipSync, unzipSync } from "fflate";
-import { parseFit, parseGpx, parseTcx } from "./parse";
+import { normalizeArchivePath, parseFit, parseGpx, parseTcx, virtualActivityFiles } from "./parse";
 import { addTrack } from "./tiles";
 
 export type WorkerIn = { type: "import"; files: File[] };
@@ -19,7 +19,60 @@ const kindOf = (name: string) => /\.(gpx|tcx|fit)$/i.exec(baseName(name))?.[1].t
 const isPlannedRoute = (name: string) => /(^|[\\/])routes[\\/]/i.test(name);
 const wanted = (name: string) => kindOf(name) !== undefined || /\.zip$/i.test(name);
 
+// Virtual activities (e.g. Zwift) listed in the archive's activities.csv are not imported.
+let virtualFiles = new Set<string>();
+const isActivitiesCsv = (name: string) => /(^|[\\/])activities\.csv$/i.test(name);
+
+async function readVirtualFiles(file: File): Promise<Set<string>> {
+  try {
+    let csv: Uint8Array | undefined;
+    const unzip = new Unzip();
+    unzip.register(UnzipInflate);
+    unzip.register(UnzipPassThrough);
+    unzip.onfile = (f) => {
+      if (!isActivitiesCsv(f.name)) return;
+      const chunks: Uint8Array[] = [];
+      f.ondata = (err, chunk, final) => {
+        if (err) return;
+        chunks.push(chunk);
+        if (final) {
+          csv = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+          let off = 0;
+          for (const c of chunks) {
+            csv.set(c, off);
+            off += c.length;
+          }
+        }
+      };
+      f.start();
+    };
+    const reader = file.stream().getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        unzip.push(new Uint8Array(0), true);
+        break;
+      }
+      unzip.push(value);
+    }
+    return csv ? virtualActivityFiles(decoder.decode(csv)) : new Set();
+  } catch {
+    try {
+      const files = unzipSync(new Uint8Array(await file.arrayBuffer()), { filter: (f) => isActivitiesCsv(f.name) });
+      const csv = Object.values(files)[0];
+      return csv ? virtualActivityFiles(decoder.decode(csv)) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+}
+
 async function processEntry(name: string, data: Uint8Array): Promise<void> {
+  if (virtualFiles.has(normalizeArchivePath(name))) {
+    skipped++;
+    post({ type: "progress", processed, skipped, current: name });
+    return;
+  }
   try {
     if (/\.gz$/i.test(name)) data = gunzipSync(data);
     const kind = kindOf(name);
@@ -88,6 +141,7 @@ async function handleFile(file: File): Promise<void> {
     return;
   }
   if (/\.zip$/i.test(file.name)) {
+    virtualFiles = await readVirtualFiles(file);
     try {
       await streamZip(file);
     } catch {

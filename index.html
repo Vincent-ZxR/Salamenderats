@@ -7,32 +7,44 @@
   </head>
   <body>
     <aside id="panel">
-      <h1>Squadrats</h1>
+      <div class="top">
+        <h1>Squadrats</h1>
+        <button id="open-import" class="btn" type="button">⬆ Import</button>
+      </div>
 
       <section>
-        <h2>Import my activities</h2>
-        <p class="hint">
-          Strava: Settings → My Account → Download or Delete Your Account → Request Your Archive, then drop the
-          zip here. GPX, FIT, TCX (and .gz) files work too. Everything is processed in your browser and stays on
-          this device.
-        </p>
-        <label>I am <select id="name"></select></label>
-        <div id="drop">Drop files here or click to choose</div>
-        <input id="files" type="file" multiple accept=".zip,.gpx,.fit,.tcx,.gz" hidden />
-        <div id="progress" class="hint"></div>
+        <h2>Players</h2>
+        <div id="players" class="players"></div>
+      </section>
+
+      <section>
+        <h2 id="stats-title">Stats</h2>
+        <div id="stats"></div>
       </section>
 
       <section>
         <h2>Layers</h2>
-        <label><input id="show14" type="checkbox" checked /> Squadrats (zoom 14)</label>
-        <label><input id="show17" type="checkbox" checked /> Squadratinhos (zoom 17, from zoom 12)</label>
-      </section>
-
-      <section>
-        <h2>People</h2>
-        <div id="people"></div>
+        <label><input id="show14" type="checkbox" checked /> Squadrats</label>
+        <label><input id="show17" type="checkbox" checked /> Squadratinhos</label>
       </section>
     </aside>
+
+    <dialog id="import-dialog">
+      <form method="dialog" class="dlg-head">
+        <h2>Import activities</h2>
+        <button class="close" aria-label="Close">✕</button>
+      </form>
+      <p class="hint">
+        Strava: Settings → My Account → Download or Delete Your Account → Request Your Archive, then drop the
+        zip here. GPX, FIT, TCX (and .gz) files work too. Everything is processed in your browser and stays on
+        this device.
+      </p>
+      <label>Import for <select id="name"></select></label>
+      <label><input id="replace" type="checkbox" /> Replace the existing map instead of merging</label>
+      <div id="drop">Drop files here or click to choose</div>
+      <input id="files" type="file" multiple accept=".zip,.gpx,.fit,.tcx,.gz" hidden />
+      <div id="progress" class="hint"></div>
+    </dialog>
     <div id="map"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

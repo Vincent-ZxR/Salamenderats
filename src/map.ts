@@ -2,7 +2,7 @@ import type { Feature, FeatureCollection, Polygon } from "geojson";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Person } from "./person";
+import { mixColor, type Person } from "./person";
 import { keyOf, toTileCoords, tileToLonLat, xOf, yOf } from "./tiles";
 
 // Bundlers don't emit MapLibre's worker file, so point it at an explicitly bundled copy.
@@ -10,7 +10,7 @@ maplibregl.setWorkerUrl(workerUrl);
 
 type FC = FeatureCollection<Polygon>;
 const EMPTY: FC = { type: "FeatureCollection", features: [] };
-const MIN_Z17_ZOOM = 12;
+const MIN_Z17_ZOOM = 10;
 const MAX_Z17_FEATURES = 40000;
 
 function tileFeature(x: number, y: number, z: number, size = 1): Feature<Polygon> {
@@ -25,6 +25,24 @@ function toCollection(keys: Iterable<number>, z: number): FC {
   const features: FC["features"] = [];
   for (const k of keys) features.push(tileFeature(xOf(k, z), yOf(k, z), z));
   return { type: "FeatureCollection", features };
+}
+
+/** Exterior contour only: edges of tiles whose neighbour is not in the set. */
+function outlineOf(keys: number[], z: number): FeatureCollection {
+  const set = new Set(keys);
+  const lines: number[][][] = [];
+  for (const k of keys) {
+    const x = xOf(k, z);
+    const y = yOf(k, z);
+    const edge = (nx: number, ny: number, a: [number, number], b: [number, number]) => {
+      if (!set.has(keyOf(nx, ny, z))) lines.push([tileToLonLat(a[0], a[1], z), tileToLonLat(b[0], b[1], z)]);
+    };
+    edge(x, y - 1, [x, y], [x + 1, y]);
+    edge(x + 1, y, [x + 1, y], [x + 1, y + 1]);
+    edge(x, y + 1, [x, y + 1], [x + 1, y + 1]);
+    edge(x - 1, y, [x, y], [x, y + 1]);
+  }
+  return { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: lines } }] };
 }
 
 export class MapView {
@@ -60,8 +78,9 @@ export class MapView {
     this.map.on("moveend", () => this.updateZ17());
   }
 
-  async render(people: Person[], show14: boolean, show17: boolean): Promise<void> {
+  async render(people: Person[], show14: boolean, show17: boolean, combined: Person | null): Promise<void> {
     await this.loaded;
+    this.clearYardHighlight();
     this.people = people;
     this.show14 = show14;
     this.show17 = show17;
@@ -74,11 +93,82 @@ export class MapView {
     }
     this.ids = [];
 
-    for (const p of people.filter((q) => q.visible)) {
-      if (show14) this.addSquadrats(p);
-      if (show17) this.addSquadratinhos(p);
+    const visible = people.filter((q) => q.visible);
+    if (show14) {
+      const masks = new Map<number, number[]>();
+      visible.forEach((p, i) => {
+        for (const k of p.tiles14) masks.set(k, [...(masks.get(k) ?? []), i]);
+      });
+      const groups = new Map<string, { color: string; keys: number[] }>();
+      for (const [k, idxs] of masks) {
+        const id = idxs.join("-");
+        let g = groups.get(id);
+        if (!g) groups.set(id, (g = { color: mixColor(idxs.map((i) => visible[i])), keys: [] }));
+        g.keys.push(k);
+      }
+      for (const [id, g] of groups) this.addSquadrats(id, g.color, toCollection(g.keys, 14));
+    }
+    if (show17) {
+      for (let mask = 1; mask < 1 << visible.length; mask++) {
+        this.addSquadratinhos(String(mask), mixColor(visible.filter((_, i) => mask & (1 << i))));
+      }
     }
     this.updateZ17();
+  }
+
+  async highlightYard(tiles: number[], z: number, box: NonNullable<Person["stats14"]["maxClusterBox"]>, color: string): Promise<void> {
+    await this.loaded;
+    this.clearYardHighlight();
+    if (!tiles.length) return;
+
+    const source = "yard-highlight";
+    this.map.addSource(source, { type: "geojson", data: toCollection(tiles, z) });
+    this.map.addLayer({
+      id: "yard-highlight-fill",
+      type: "fill",
+      source,
+      paint: { "fill-color": "#ffffff", "fill-opacity": 0.55, "fill-antialias": false },
+    });
+    this.map.addSource("yard-outline", { type: "geojson", data: outlineOf(tiles, z) });
+    this.map.addLayer({
+      id: "yard-highlight-line",
+      type: "line",
+      source: "yard-outline",
+      paint: { "line-color": color, "line-width": 4 },
+    });
+    this.fitToBox(box, z);
+  }
+
+  async highlightSquare(at: { x: number; y: number }, size: number, z: number, color: string): Promise<void> {
+    await this.loaded;
+    this.clearYardHighlight();
+    const source = "yard-highlight";
+    this.map.addSource(source, {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [tileFeature(at.x, at.y, z, size)] },
+    });
+    this.map.addLayer({
+      id: "yard-highlight-fill",
+      type: "fill",
+      source,
+      paint: { "fill-color": "#ffffff", "fill-opacity": 0.55 },
+    });
+    this.map.addLayer({
+      id: "yard-highlight-line",
+      type: "line",
+      source,
+      paint: { "line-color": color, "line-width": 5 },
+    });
+    this.fitToBox({ minX: at.x, minY: at.y, maxX: at.x + size - 1, maxY: at.y + size - 1 }, z);
+  }
+
+  private clearYardHighlight(): void {
+    for (const id of ["yard-highlight-line", "yard-highlight-fill"]) {
+      if (this.map.getLayer(id)) this.map.removeLayer(id);
+    }
+    for (const s of ["yard-highlight", "yard-outline"]) {
+      if (this.map.getSource(s)) this.map.removeSource(s);
+    }
   }
 
   private track(id: string) {
@@ -86,52 +176,33 @@ export class MapView {
     return id;
   }
 
-  private addSquadrats(p: Person) {
-    let fc = this.fc14.get(p);
-    if (!fc) {
-      fc = toCollection(p.tiles14, 14);
-      this.fc14.set(p, fc);
-    }
-    const src = this.track(`${p.id}-14`);
+  private addSquadrats(id: string, color: string, fc: FC) {
+    const src = this.track(`g14-${id}`);
     this.map.addSource(src, { type: "geojson", data: fc });
     this.map.addLayer({
-      id: this.track(`${p.id}-14-fill`),
+      id: this.track(`g14-${id}-fill`),
       type: "fill",
       source: src,
-      paint: { "fill-color": p.color, "fill-opacity": 0.3 },
+      paint: { "fill-color": color, "fill-opacity": 0.4 },
     });
     this.map.addLayer({
-      id: this.track(`${p.id}-14-line`),
+      id: this.track(`g14-${id}-line`),
       type: "line",
       source: src,
-      paint: { "line-color": p.color, "line-width": 1, "line-opacity": 0.7 },
+      paint: { "line-color": color, "line-width": 1, "line-opacity": 0.8 },
     });
-
-    const sq = p.stats14.maxSquareAt;
-    if (sq && p.stats14.maxSquare > 1) {
-      const sqSrc = this.track(`${p.id}-sq`);
-      this.map.addSource(sqSrc, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [tileFeature(sq.x, sq.y, 14, p.stats14.maxSquare)] },
-      });
-      this.map.addLayer({
-        id: this.track(`${p.id}-sq-line`),
-        type: "line",
-        source: sqSrc,
-        paint: { "line-color": p.color, "line-width": 3 },
-      });
-    }
   }
 
-  private addSquadratinhos(p: Person) {
-    const src = this.track(`${p.id}-17`);
+
+  private addSquadratinhos(mask: string, color: string) {
+    const src = this.track(`g17-${mask}`);
     this.map.addSource(src, { type: "geojson", data: EMPTY });
     this.map.addLayer({
-      id: this.track(`${p.id}-17-fill`),
+      id: this.track(`g17-${mask}-fill`),
       type: "fill",
       source: src,
       minzoom: MIN_Z17_ZOOM,
-      paint: { "fill-color": p.color, "fill-opacity": 0.45 },
+      paint: { "fill-color": color, "fill-opacity": 0.45 },
     });
   }
 
@@ -146,33 +217,46 @@ export class MapView {
     const minY = Math.floor(y0);
     const maxY = Math.floor(y1);
 
-    for (const p of this.people.filter((q) => q.visible)) {
-      const src = this.map.getSource(`${p.id}-17`) as maplibregl.GeoJSONSource | undefined;
-      if (!src) continue;
-      if (zoom < MIN_Z17_ZOOM) {
-        src.setData(EMPTY);
-        continue;
-      }
-      const features: FC["features"] = [];
-      // Iterating the viewport is cheaper than the whole set only when the area is small.
+    const visible = this.people.filter((q) => q.visible);
+    const masks = new Map<number, number>();
+    if (zoom >= MIN_Z17_ZOOM) {
       const area = (maxX - minX + 1) * (maxY - minY + 1);
-      if (area < p.tiles17.size) {
-        for (let x = minX; x <= maxX && features.length < MAX_Z17_FEATURES; x++) {
-          for (let y = minY; y <= maxY; y++) {
-            if (p.tiles17.has(keyOf(x, y))) features.push(tileFeature(x, y, 17));
+      visible.forEach((p, i) => {
+        const bit = 1 << i;
+        let count = 0;
+        // Iterating the viewport is cheaper than the whole set only when the area is small.
+        if (area < p.tiles17.size) {
+          for (let x = minX; x <= maxX && count < MAX_Z17_FEATURES; x++) {
+            for (let y = minY; y <= maxY; y++) {
+              const k = keyOf(x, y);
+              if (p.tiles17.has(k)) {
+                masks.set(k, (masks.get(k) ?? 0) | bit);
+                count++;
+              }
+            }
+          }
+        } else {
+          for (const k of p.tiles17) {
+            const x = xOf(k);
+            const y = yOf(k);
+            if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+              masks.set(k, (masks.get(k) ?? 0) | bit);
+              if (++count >= MAX_Z17_FEATURES) break;
+            }
           }
         }
-      } else {
-        for (const k of p.tiles17) {
-          const x = xOf(k);
-          const y = yOf(k);
-          if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-            features.push(tileFeature(x, y, 17));
-            if (features.length >= MAX_Z17_FEATURES) break;
-          }
-        }
-      }
-      src.setData({ type: "FeatureCollection", features });
+      });
+    }
+
+    const byMask = new Map<number, FC["features"]>();
+    for (const [k, mask] of masks) {
+      const list = byMask.get(mask) ?? [];
+      list.push(tileFeature(xOf(k), yOf(k), 17));
+      byMask.set(mask, list);
+    }
+    for (let mask = 1; mask < 1 << visible.length; mask++) {
+      const src = this.map.getSource(`g17-${mask}`) as maplibregl.GeoJSONSource | undefined;
+      src?.setData({ type: "FeatureCollection", features: byMask.get(mask) ?? [] });
     }
   }
 
@@ -180,7 +264,30 @@ export class MapView {
   fitToBox(box: { minX: number; minY: number; maxX: number; maxY: number }, z: number): void {
     const [w, n] = tileToLonLat(box.minX, box.minY, z);
     const [e, s] = tileToLonLat(box.maxX + 1, box.maxY + 1, z);
-    this.map.fitBounds([[w, s], [e, n]], { padding: 60, duration: 600, maxZoom: 17 });
+    this.map.fitBounds([[w, s], [e, n]], { padding: 150, duration: 600, maxZoom: 16 });
+  }
+
+  /** Removes the yard/uber overlay and zooms on the block of tiles with the most visited tiles. */
+  async fitDensest(p: Person, z: 14 | 17): Promise<void> {
+    await this.loaded;
+    this.clearYardHighlight();
+    const tiles = z === 17 ? p.tiles17 : p.tiles14;
+    if (!tiles.size) return;
+    const bin = z === 17 ? 32 : 16;
+    const counts = new Map<string, number>();
+    let best = "";
+    let bestCount = 0;
+    for (const k of tiles) {
+      const id = `${Math.floor(xOf(k, z) / bin)},${Math.floor(yOf(k, z) / bin)}`;
+      const c = (counts.get(id) ?? 0) + 1;
+      counts.set(id, c);
+      if (c > bestCount) {
+        bestCount = c;
+        best = id;
+      }
+    }
+    const [bx, by] = best.split(",").map(Number);
+    this.fitToBox({ minX: bx * bin, minY: by * bin, maxX: (bx + 1) * bin - 1, maxY: (by + 1) * bin - 1 }, z);
   }
 
   fitTo(p: Person): void {

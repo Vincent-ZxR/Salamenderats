@@ -29,13 +29,37 @@ export function tileToLonLat(x: number, y: number, z: number): [number, number] 
   return [lon, lat];
 }
 
-/** Segments longer than this (in zoom-17 tiles) are treated as GPS gaps, not interpolated. */
-const MAX_INTERPOLATED_TILES = 40;
+/** Segments longer than this (in zoom-17 tiles, ~1 km) are treated as GPS dropouts, not interpolated. */
+const MAX_INTERPOLATED_TILES = 5;
 
-/**
- * Adds every zoom-17 tile touched by a track. Consecutive points are
- * interpolated so fast segments do not skip tiles.
- */
+/** Adds every tile crossed by the segment (tile coordinates), however briefly, by walking the grid. */
+export function addSegment(tiles: Set<number>, x0: number, y0: number, x1: number, y1: number): void {
+  let cx = Math.floor(x0);
+  let cy = Math.floor(y0);
+  const ex = Math.floor(x1);
+  const ey = Math.floor(y1);
+  tiles.add(keyOf(cx, cy));
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const stepX = Math.sign(dx);
+  const stepY = Math.sign(dy);
+  let tMaxX = dx > 0 ? (cx + 1 - x0) / dx : dx < 0 ? (x0 - cx) / -dx : Infinity;
+  let tMaxY = dy > 0 ? (cy + 1 - y0) / dy : dy < 0 ? (y0 - cy) / -dy : Infinity;
+  const tDeltaX = dx !== 0 ? 1 / Math.abs(dx) : Infinity;
+  const tDeltaY = dy !== 0 ? 1 / Math.abs(dy) : Infinity;
+  while (cx !== ex || cy !== ey) {
+    if (cy === ey || (cx !== ex && tMaxX < tMaxY)) {
+      cx += stepX;
+      tMaxX += tDeltaX;
+    } else {
+      cy += stepY;
+      tMaxY += tDeltaY;
+    }
+    tiles.add(keyOf(cx, cy));
+  }
+}
+
+/** Adds every zoom-17 tile touched by a track, including tiles only clipped by a segment. */
 export function addTrack(tiles: Set<number>, points: Iterable<[number, number]>): void {
   let prev: [number, number] | null = null;
   for (const [lat, lon] of points) {
@@ -46,15 +70,8 @@ export function addTrack(tiles: Set<number>, points: Iterable<[number, number]>)
     const cur = toTileCoords(lat, lon);
     tiles.add(keyOf(Math.floor(cur[0]), Math.floor(cur[1])));
     if (prev) {
-      const dx = cur[0] - prev[0];
-      const dy = cur[1] - prev[1];
-      const dist = Math.hypot(dx, dy);
-      if (dist > 1 && dist <= MAX_INTERPOLATED_TILES) {
-        const steps = Math.ceil(dist / 0.25);
-        for (let i = 1; i < steps; i++) {
-          const t = i / steps;
-          tiles.add(keyOf(Math.floor(prev[0] + dx * t), Math.floor(prev[1] + dy * t)));
-        }
+      if (Math.hypot(cur[0] - prev[0], cur[1] - prev[1]) <= MAX_INTERPOLATED_TILES) {
+        addSegment(tiles, prev[0], prev[1], cur[0], cur[1]);
       }
     }
     prev = cur;

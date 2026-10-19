@@ -13,11 +13,27 @@ export interface Person {
 }
 
 export const FRIENDS = [
-  { name: "Grégoire", color: "#1f6feb" },
-  { name: "Hugo", color: "#ff8c00" },
-  { name: "Thomas", color: "#e63946" },
-  { name: "Vincent", color: "#2ca02c" },
+  { name: "Hugo", color: "#ff00cc" },
+  { name: "Thomas", color: "#00c8e6" },
+  { name: "Vincent", color: "#ffd400" },
 ] as const;
+
+const MIXES: Record<string, string> = {
+  "Hugo+Vincent": "#ff7a1a", // magenta + yellow = orange
+  "Thomas+Vincent": "#3cc24a", // cyan + yellow = green
+  "Hugo+Thomas": "#6a4cf0", // magenta + cyan = violet
+  "Hugo+Thomas+Vincent": "#7a5c4a",
+};
+
+/** Color of a squadrat shared by the given people. */
+export function mixColor(people: Pick<Person, "name" | "color">[]): string {
+  if (people.length === 1) return people[0].color;
+  const known = MIXES[people.map((p) => p.name).sort().join("+")];
+  if (known) return known;
+  const rgb = people.map((p) => [1, 3, 5].map((i) => parseInt(p.color.slice(i, i + 2), 16)));
+  const avg = [0, 1, 2].map((c) => Math.round(rgb.reduce((s, v) => s + v[c], 0) / rgb.length));
+  return `#${avg.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
 
 export function makePerson(name: string, color: string, tiles17: Set<number>): Person {
   const tiles14 = toSquadrats(tiles17);

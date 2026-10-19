@@ -11,7 +11,7 @@ npm run build    # outputs dist/, deploy as a static site
 npm test
 ```
 
-1. Pick who you are (Grégoire, Hugo, Thomas or Vincent), then drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your existing map.
+1. Pick who you are (Hugo, Thomas or Vincent), then drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your existing map.
 2. Your map and stats (squadrats, Übersquadrat, Yard, squadratinhos, Übersquadratinho, Yardinho) appear on your card. Click an Über/Yard row to zoom on it.
 
 Imported tiles are saved in the browser's local storage. With Supabase configured (below), each import is also shared: everyone sees everyone's maps and stats, and open pages update live.
@@ -33,6 +33,6 @@ It is a plain static Vite site, so any static host works (Vercel, Cloudflare Pag
 ## Notes
 
 - Squadrats are zoom-14 Web Mercator tiles, squadratinhos are zoom-17 tiles. Only zoom-17 tiles are stored; zoom-14 is derived.
-- Tracks are interpolated between points so fast segments don't skip tiles; gaps over 40 zoom-17 tiles are ignored.
-- Übersquadrat / Übersquadratinho = largest fully-visited square; Yard / Yardinho = largest connected group (4-neighbour).
+- Tracks are interpolated between points so fast segments don't skip tiles; gaps over 5 zoom-17 tiles (about 1 km) are treated as GPS dropouts and ignored. Tick "Replace my existing map" when re-importing to discard previously imported tiles.
+- Übersquadrat / Übersquadratinho = largest fully-visited square; Yard / Yardinho = largest 4-connected group of visited tiles whose north, east, south, and west neighbours are also visited.
 - The base map uses the public OpenStreetMap tile server (fine for a few users). Change the source in [src/map.ts](./src/map.ts) for heavier use.

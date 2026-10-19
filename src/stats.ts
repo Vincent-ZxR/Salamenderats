@@ -13,9 +13,11 @@ export interface Stats {
   maxSquare: number;
   /** Top-left tile of the largest fully-visited square. */
   maxSquareAt: { x: number; y: number } | null;
-  /** Size of the largest connected group (Yard / Yardinho). */
+  /** Size of the largest connected group of tiles with all four neighbours visited. */
   maxCluster: number;
-  /** Bounding box (inclusive tile coordinates) of the largest cluster. */
+  /** Tiles in the largest connected group of tiles with all four neighbours visited. */
+  maxClusterTiles: number[];
+  /** Bounding box (inclusive tile coordinates) of the largest yard. */
   maxClusterBox: TileBox | null;
 }
 
@@ -44,20 +46,40 @@ export function maxSquare(keys: Set<number>, z: number) {
   return { size: best, at };
 }
 
-/** Size and bounding box of the largest 4-connected group of visited tiles. */
-export function maxCluster(keys: Set<number>, z: number): { size: number; box: TileBox | null } {
+/** Largest 4-connected group of visited tiles whose four neighbours are also visited. */
+export function maxCluster(
+  keys: Set<number>,
+  z: number,
+): { size: number; tiles: number[]; box: TileBox | null } {
+  const eligible = new Set<number>();
+  for (const k of keys) {
+    const x = xOf(k, z);
+    const y = yOf(k, z);
+    if (
+      keys.has(keyOf(x + 1, y, z)) &&
+      keys.has(keyOf(x - 1, y, z)) &&
+      keys.has(keyOf(x, y + 1, z)) &&
+      keys.has(keyOf(x, y - 1, z))
+    ) {
+      eligible.add(k);
+    }
+  }
+
   const seen = new Set<number>();
   let best = 0;
+  let bestTiles: number[] = [];
   let bestBox: TileBox | null = null;
-  for (const start of keys) {
+  for (const start of eligible) {
     if (seen.has(start)) continue;
     let size = 0;
+    const tiles: number[] = [];
     const box: TileBox = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
     const stack = [start];
     seen.add(start);
     while (stack.length) {
       const k = stack.pop()!;
       size++;
+      tiles.push(k);
       const x = xOf(k, z);
       const y = yOf(k, z);
       if (x < box.minX) box.minX = x;
@@ -65,7 +87,7 @@ export function maxCluster(keys: Set<number>, z: number): { size: number; box: T
       if (y < box.minY) box.minY = y;
       if (y > box.maxY) box.maxY = y;
       for (const n of [keyOf(x + 1, y, z), keyOf(x - 1, y, z), keyOf(x, y + 1, z), keyOf(x, y - 1, z)]) {
-        if (keys.has(n) && !seen.has(n)) {
+        if (eligible.has(n) && !seen.has(n)) {
           seen.add(n);
           stack.push(n);
         }
@@ -73,10 +95,11 @@ export function maxCluster(keys: Set<number>, z: number): { size: number; box: T
     }
     if (size > best) {
       best = size;
+      bestTiles = tiles;
       bestBox = box;
     }
   }
-  return { size: best, box: bestBox };
+  return { size: best, tiles: bestTiles, box: bestBox };
 }
 
 export function computeStats(keys: Set<number>, z: number): Stats {
@@ -87,6 +110,7 @@ export function computeStats(keys: Set<number>, z: number): Stats {
     maxSquare: sq.size,
     maxSquareAt: sq.at,
     maxCluster: cl.size,
+    maxClusterTiles: cl.tiles,
     maxClusterBox: cl.box,
   };
 }
