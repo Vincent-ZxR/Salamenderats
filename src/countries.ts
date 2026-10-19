@@ -80,35 +80,27 @@ export function bordersOf(areas: Indexed[]): Feature<MultiLineString> {
 
 type AreaFC = FeatureCollection<Polygon | MultiPolygon, { name: string }>;
 
-async function fetchJson(file: string): Promise<any> {
+async function fetchAreas(file: string): Promise<AreaFC["features"]> {
   const res = await fetch(`${import.meta.env.BASE_URL}data/${file}`);
   if (!res.ok) throw new Error(`Could not load ${file}`);
-  return res.json();
+  const topo = await res.json();
+  const fc = feature(topo, topo.objects[Object.keys(topo.objects)[0]]) as unknown as FeatureCollection<
+    Polygon | MultiPolygon,
+    { name?: string; nom?: string }
+  >;
+  return fc.features.map((f) => ({ ...f, properties: { name: f.properties.name ?? f.properties.nom ?? "" } }));
 }
 
+const fc = (features: AreaFC["features"]): AreaFC => ({ type: "FeatureCollection", features });
+
 const loaders: Record<AreaKind, () => Promise<Indexed[]>> = {
-  countries: async () => {
-    const mod = await import("world-atlas/countries-50m.json");
-    const topo = (mod.default ?? mod) as any;
-    return index(feature(topo, topo.objects.countries) as unknown as AreaFC);
-  },
+  countries: async () => index(fc(await fetchAreas("countries.json"))),
   // Natural Earth first-level divisions (France excluded), plus French regions.
   regions: async () => {
-    const [world, fr] = await Promise.all([fetchJson("regions.json"), fetchJson("fr-regions.geojson")]);
-    const fc = feature(world, world.objects[Object.keys(world.objects)[0]]) as unknown as AreaFC;
-    const french = (fr as FeatureCollection<Polygon | MultiPolygon, { nom: string }>).features.map((f) => ({
-      ...f,
-      properties: { name: f.properties.nom },
-    }));
-    return index({ type: "FeatureCollection", features: [...fc.features, ...french] });
+    const [world, fr] = await Promise.all([fetchAreas("regions.json"), fetchAreas("fr-regions.json")]);
+    return index(fc([...world, ...fr]));
   },
-  departments: async () => {
-    const fr = (await fetchJson("fr-departements.geojson")) as FeatureCollection<Polygon | MultiPolygon, { nom: string }>;
-    return index({
-      type: "FeatureCollection",
-      features: fr.features.map((f) => ({ ...f, properties: { name: f.properties.nom } })),
-    });
-  },
+  departments: async () => index(fc(await fetchAreas("fr-departements.json"))),
 };
 
 export function loadAreas(kind: AreaKind): Promise<Indexed[]> {
