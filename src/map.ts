@@ -170,16 +170,20 @@ export class MapView {
 
     const visible = people.filter((q) => q.visible);
     if (!showMap) {
-      // Without the base map, keep the borders of every country as a reference.
-      const all = await loadAreas("countries");
-      const src = this.track("borders");
-      this.map.addSource(src, { type: "geojson", data: bordersOf(all) });
-      this.map.addLayer({
-        id: this.track("borders-line"),
-        type: "line",
-        source: src,
-        paint: { "line-color": "#888888", "line-width": 1 },
-      });
+      // Without the base map, draw borders for the checked area layers; finer ones only when zoomed in.
+      const style = { countries: [0, "#777777", 1.2], regions: [4, "#999999", 0.8], departments: [6, "#aaaaaa", 0.6] } as const;
+      for (const [kind, areas] of areaSets) {
+        const [minzoom, color, width] = style[kind];
+        const src = this.track(`borders-${kind}`);
+        this.map.addSource(src, { type: "geojson", data: bordersOf(areas) });
+        this.map.addLayer({
+          id: this.track(`borders-${kind}-line`),
+          type: "line",
+          source: src,
+          minzoom,
+          paint: { "line-color": color, "line-width": width },
+        });
+      }
     }
     if (areaSets.length) {
       // Same player colors as squadrats, with a lower opacity so the map stays readable.
