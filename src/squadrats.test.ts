@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeKeys, encodeKeys } from "./codec";
+import { decodeKeys, decodeTiles, encodeKeys, encodeTiles } from "./codec";
 import { parseGpx, parseTcx, virtualActivityFiles } from "./parse";
 import { computeStats } from "./stats";
 import { addSegment, addTrack, keyOf, toSquadrats, toTileCoords } from "./tiles";
@@ -75,15 +75,35 @@ describe("codec", () => {
     const keys = new Set([5, 1_000_000, 17_000_000_000, 3, 131072 * 70000 + 12345]);
     expect(decodeKeys(encodeKeys(keys))).toEqual(keys);
   });
+
+  it("round-trips first-visit days and stays compatible with plain keys", () => {
+    const keys = new Set([5, 90, 1_000_000]);
+    const first = new Map([[5, 19000], [1_000_000, 20000]]);
+    const { tiles17, first17 } = decodeTiles(encodeTiles(keys, first));
+    expect(tiles17).toEqual(keys);
+    expect(first17).toEqual(first);
+    expect(decodeTiles(encodeKeys(keys)).first17.size).toBe(0);
+  });
 });
 
 describe("parsers", () => {
   it("reads GPX track points", () => {
     const gpx = `<gpx><trk><trkseg><trkpt lat="50.1" lon="4.2"><ele>1</ele></trkpt><trkpt lon='4.3' lat='50.2'/></trkseg></trk></gpx>`;
     expect([...parseGpx(gpx)].filter((p) => !Number.isNaN(p[0]))).toEqual([
-      [50.1, 4.2],
-      [50.2, 4.3],
+      [50.1, 4.2, undefined],
+      [50.2, 4.3, undefined],
     ]);
+  });
+
+  it("reads GPX and TCX timestamps", () => {
+    const t = Date.parse("2024-05-01T10:00:00Z");
+    const gpx = `<trkseg><trkpt lat="50.1" lon="4.2"><time>2024-05-01T10:00:00Z</time></trkpt><trkpt lat="50.2" lon="4.3"></trkpt></trkseg>`;
+    expect([...parseGpx(gpx)].filter((p) => !Number.isNaN(p[0]))).toEqual([
+      [50.1, 4.2, t],
+      [50.2, 4.3, undefined],
+    ]);
+    const tcx = `<Trackpoint><Time>2024-05-01T10:00:00Z</Time><Position><LatitudeDegrees>50.1</LatitudeDegrees><LongitudeDegrees>4.2</LongitudeDegrees></Position></Trackpoint>`;
+    expect([...parseTcx(tcx)]).toEqual([[50.1, 4.2, t]]);
   });
 
   it("lists virtual activity files from activities.csv", () => {
@@ -104,6 +124,6 @@ describe("parsers", () => {
 
   it("reads TCX positions", () => {
     const tcx = `<Position><LatitudeDegrees>50.1</LatitudeDegrees><LongitudeDegrees>4.2</LongitudeDegrees></Position>`;
-    expect([...parseTcx(tcx)]).toEqual([[50.1, 4.2]]);
+    expect([...parseTcx(tcx)]).toEqual([[50.1, 4.2, undefined]]);
   });
 });

@@ -1,11 +1,14 @@
 import { computeStats, type Stats } from "./stats";
-import { toSquadrats } from "./tiles";
+import { firstOfSquadrats, noteVisit, toSquadrats, type FirstSeen } from "./tiles";
 
 export interface Person {
   id: string;
   name: string;
   tiles17: Set<number>;
   tiles14: Set<number>;
+  /** Earliest visit day (days since 1970) per tile; may be missing for tiles without timestamps. */
+  first17: FirstSeen;
+  first14: FirstSeen;
   stats14: Stats;
   stats17: Stats;
   color: string;
@@ -35,13 +38,20 @@ export function mixColor(people: Pick<Person, "name" | "color">[]): string {
   return `#${avg.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export function makePerson(name: string, color: string, tiles17: Set<number>): Person {
+export function makePerson(
+  name: string,
+  color: string,
+  tiles17: Set<number>,
+  first17: FirstSeen = new Map(),
+): Person {
   const tiles14 = toSquadrats(tiles17);
   return {
     id: `p-${name}`,
     name,
     tiles17,
     tiles14,
+    first17,
+    first14: firstOfSquadrats(first17),
     stats14: computeStats(tiles14, 14),
     stats17: computeStats(tiles17, 17),
     color,
@@ -49,10 +59,12 @@ export function makePerson(name: string, color: string, tiles17: Set<number>): P
   };
 }
 
-export function mergeInto(person: Person, extra: Set<number>): Person {
+export function mergeInto(person: Person, extra: Set<number>, extraFirst: FirstSeen = new Map()): Person {
   const merged = new Set(person.tiles17);
   for (const k of extra) merged.add(k);
-  const updated = makePerson(person.name, person.color, merged);
+  const first = new Map(person.first17);
+  for (const [k, day] of extraFirst) noteVisit(first, k, day);
+  const updated = makePerson(person.name, person.color, merged, first);
   updated.visible = person.visible;
   return updated;
 }

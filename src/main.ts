@@ -1,8 +1,9 @@
 import "./style.css";
-import { decodeKeys, encodeKeys, parsePersonFile, toPersonFile, type PersonFile } from "./codec";
+import { decodeTiles, encodeTiles, parsePersonFile, toPersonFile, type PersonFile } from "./codec";
 import { MapView } from "./map";
 import { FRIENDS, makePerson, mergeInto, mixColor, type Person } from "./person";
 import { fetchMaps, saveMap, subscribe, syncEnabled } from "./sync";
+import type { FirstSeen } from "./tiles";
 import type { WorkerIn, WorkerOut } from "./import.worker";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -15,7 +16,7 @@ const view = new MapView($("map"));
 
 function saveLocal() {
   try {
-    const files = people.filter((p) => p.tiles17.size).map((p) => toPersonFile(p.name, p.tiles17));
+    const files = people.filter((p) => p.tiles17.size).map((p) => toPersonFile(p.name, p.tiles17, p.first17));
     localStorage.setItem(LOCAL_KEY, JSON.stringify(files));
   } catch {
     alert("Could not save your map in this browser (storage full).");
@@ -64,9 +65,10 @@ function refresh(fit?: Person) {
 }
 
 /** Merges tiles into a person; `changed` is false when they were all known already. */
-function addTiles(name: string, tiles17: Set<number>): { person: Person; changed: boolean } {
+function addTiles(name: string, tiles17: Set<number>, first17: FirstSeen = new Map()): { person: Person; changed: boolean } {
   const idx = people.findIndex((p) => p.name === name);
   const known = people[idx].tiles17;
+  const knownFirst = people[idx].first17;
   let changed = false;
   for (const k of tiles17) {
     if (!known.has(k)) {
@@ -74,7 +76,16 @@ function addTiles(name: string, tiles17: Set<number>): { person: Person; changed
       break;
     }
   }
-  if (changed) people[idx] = mergeInto(people[idx], tiles17);
+  if (!changed) {
+    for (const [k, day] of first17) {
+      const prev = knownFirst.get(k);
+      if (prev === undefined || day < prev) {
+        changed = true;
+        break;
+      }
+    }
+  }
+  if (changed) people[idx] = mergeInto(people[idx], tiles17, first17);
   return { person: people[idx], changed };
 }
 
@@ -147,6 +158,7 @@ importDialog.addEventListener("click", (e) => {
 $("show14").addEventListener("change", () => refresh());
 $("show17").addEventListener("change", () => refresh());
 $("showMap").addEventListener("change", () => refresh());
+$("showDates").addEventListener("change", () => (view.showDates = $<HTMLInputElement>("showDates").checked));
 
 const nameSelect = $<HTMLSelectElement>("name");
 nameSelect.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
@@ -173,13 +185,15 @@ function runImport(files: File[]) {
     importing = false;
     worker.terminate();
     const imported = new Set(m.tiles);
+    const importedFirst: FirstSeen = new Map();
+    for (let i = 0; i + 1 < m.dates.length; i += 2) importedFirst.set(m.dates[i], m.dates[i + 1]);
     if (replace) {
       const idx = people.findIndex((p) => p.name === name);
-      const fresh = makePerson(name, people[idx].color, imported);
+      const fresh = makePerson(name, people[idx].color, imported, importedFirst);
       fresh.visible = people[idx].visible;
       people[idx] = fresh;
     }
-    const { person } = addTiles(name, imported);
+    const { person } = addTiles(name, imported, importedFirst);
     saveLocal();
     const summary = `Done: ${m.processed} activities imported for ${name}, ${m.skipped} skipped.`;
     progress.textContent = summary;
@@ -227,19 +241,19 @@ drop.addEventListener("drop", (e) => {
   runImport([...(e.dataTransfer?.files ?? [])]);
 });
 
-const push = (person: Person) => saveMap(person.name, encodeKeys(person.tiles17));
+const push = (person: Person) => saveMap(person.name, encodeTiles(person.tiles17, person.first17));
 
 /** Replaces the cached view with the shared maps after a successful remote read. */
 async function pull(): Promise<void> {
   const remote = await fetchMaps();
-  const remoteTiles = new Map(remote.map((r) => [r.name, decodeKeys(r.tiles)]));
+  const remoteTiles = new Map(remote.map((r) => [r.name, decodeTiles(r.tiles)]));
   let changed = false;
   for (let idx = 0; idx < people.length; idx++) {
     const person = people[idx];
-    const tiles = remoteTiles.get(person.name) ?? new Set<number>();
+    const { tiles17: tiles, first17 } = remoteTiles.get(person.name) ?? { tiles17: new Set<number>(), first17: new Map() };
     const same = person.tiles17.size === tiles.size && [...person.tiles17].every((tile) => tiles.has(tile));
-    if (!same) {
-      const replacement = makePerson(person.name, person.color, tiles);
+    if (!same || first17.size > person.first17.size) {
+      const replacement = makePerson(person.name, person.color, tiles, first17);
       replacement.visible = person.visible;
       people[idx] = replacement;
       changed = true;
@@ -264,7 +278,7 @@ function init() {
     const saved = JSON.parse(localStorage.getItem(LOCAL_KEY) ?? "[]") as PersonFile[];
     for (const f of saved) {
       const parsed = parsePersonFile(f);
-      if (people.some((p) => p.name === parsed.name)) addTiles(parsed.name, parsed.tiles17);
+      if (people.some((p) => p.name === parsed.name)) addTiles(parsed.name, parsed.tiles17, parsed.first17);
     }
   } catch (err) {
     console.warn("Could not read saved data", err);

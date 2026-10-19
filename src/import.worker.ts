@@ -1,13 +1,14 @@
 import { Unzip, UnzipInflate, UnzipPassThrough, gunzipSync, unzipSync } from "fflate";
 import { normalizeArchivePath, parseFit, parseGpx, parseTcx, virtualActivityFiles } from "./parse";
-import { addTrack } from "./tiles";
+import { addTrack, type FirstSeen } from "./tiles";
 
 export type WorkerIn = { type: "import"; files: File[] };
 export type WorkerOut =
   | { type: "progress"; processed: number; skipped: number; current: string }
-  | { type: "done"; tiles: Float64Array; processed: number; skipped: number };
+  | { type: "done"; tiles: Float64Array; dates: Float64Array; processed: number; skipped: number };
 
 const tiles = new Set<number>();
+const first: FirstSeen = new Map();
 let processed = 0;
 let skipped = 0;
 
@@ -76,9 +77,9 @@ async function processEntry(name: string, data: Uint8Array): Promise<void> {
   try {
     if (/\.gz$/i.test(name)) data = gunzipSync(data);
     const kind = kindOf(name);
-    if (kind === "gpx") addTrack(tiles, parseGpx(decoder.decode(data)));
-    else if (kind === "tcx") addTrack(tiles, parseTcx(decoder.decode(data)));
-    else if (kind === "fit") addTrack(tiles, await parseFit(data));
+    if (kind === "gpx") addTrack(tiles, parseGpx(decoder.decode(data)), first);
+    else if (kind === "tcx") addTrack(tiles, parseTcx(decoder.decode(data)), first);
+    else if (kind === "fit") addTrack(tiles, await parseFit(data), first);
     else return;
     processed++;
   } catch {
@@ -156,5 +157,5 @@ async function handleFile(file: File): Promise<void> {
 self.onmessage = async (e: MessageEvent<WorkerIn>) => {
   if (e.data.type !== "import") return;
   for (const file of e.data.files) await handleFile(file);
-  post({ type: "done", tiles: Float64Array.from(tiles), processed, skipped });
+  post({ type: "done", tiles: Float64Array.from(tiles), dates: Float64Array.from([...first].flat()), processed, skipped });
 };

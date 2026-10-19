@@ -32,13 +32,36 @@ export function tileToLonLat(x: number, y: number, z: number): [number, number] 
 /** Segments longer than this (in zoom-17 tiles, ~1 km) are treated as GPS dropouts, not interpolated. */
 const MAX_INTERPOLATED_TILES = 5;
 
+/** Earliest day (days since 1970) each zoom-17 tile was visited. */
+export type FirstSeen = Map<number, number>;
+
+const DAY_MS = 86_400_000;
+
+export function noteVisit(first: FirstSeen, key: number, day: number): void {
+  const prev = first.get(key);
+  if (prev === undefined || day < prev) first.set(key, day);
+}
+
 /** Adds every tile crossed by the segment (tile coordinates), however briefly, by walking the grid. */
-export function addSegment(tiles: Set<number>, x0: number, y0: number, x1: number, y1: number): void {
+export function addSegment(
+  tiles: Set<number>,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  first?: FirstSeen,
+  day?: number,
+): void {
+  const add = (x: number, y: number) => {
+    const k = keyOf(x, y);
+    tiles.add(k);
+    if (first && day !== undefined) noteVisit(first, k, day);
+  };
   let cx = Math.floor(x0);
   let cy = Math.floor(y0);
   const ex = Math.floor(x1);
   const ey = Math.floor(y1);
-  tiles.add(keyOf(cx, cy));
+  add(cx, cy);
   const dx = x1 - x0;
   const dy = y1 - y0;
   const stepX = Math.sign(dx);
@@ -55,23 +78,30 @@ export function addSegment(tiles: Set<number>, x0: number, y0: number, x1: numbe
       cy += stepY;
       tMaxY += tDeltaY;
     }
-    tiles.add(keyOf(cx, cy));
+    add(cx, cy);
   }
 }
 
-/** Adds every zoom-17 tile touched by a track, including tiles only clipped by a segment. */
-export function addTrack(tiles: Set<number>, points: Iterable<[number, number]>): void {
+/** Adds every zoom-17 tile touched by a track, including tiles only clipped by a segment. Points are [lat, lon, time ms?]. */
+export function addTrack(
+  tiles: Set<number>,
+  points: Iterable<[number, number, number?]>,
+  first?: FirstSeen,
+): void {
   let prev: [number, number] | null = null;
-  for (const [lat, lon] of points) {
+  for (const [lat, lon, time] of points) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) {
       prev = null;
       continue;
     }
+    const day = time !== undefined && Number.isFinite(time) ? Math.floor(time / DAY_MS) : undefined;
     const cur = toTileCoords(lat, lon);
-    tiles.add(keyOf(Math.floor(cur[0]), Math.floor(cur[1])));
+    const k = keyOf(Math.floor(cur[0]), Math.floor(cur[1]));
+    tiles.add(k);
+    if (first && day !== undefined) noteVisit(first, k, day);
     if (prev) {
       if (Math.hypot(cur[0] - prev[0], cur[1] - prev[1]) <= MAX_INTERPOLATED_TILES) {
-        addSegment(tiles, prev[0], prev[1], cur[0], cur[1]);
+        addSegment(tiles, prev[0], prev[1], cur[0], cur[1], first, day);
       }
     }
     prev = cur;
@@ -83,6 +113,15 @@ export function toSquadrats(tiles17: Iterable<number>): Set<number> {
   const out = new Set<number>();
   for (const k of tiles17) {
     out.add(keyOf(xOf(k) >> Z_SHIFT, yOf(k) >> Z_SHIFT, Z_SQUADRAT));
+  }
+  return out;
+}
+
+/** Earliest visit day of each zoom-14 tile, derived from zoom-17 visit days. */
+export function firstOfSquadrats(first17: FirstSeen): FirstSeen {
+  const out: FirstSeen = new Map();
+  for (const [k, day] of first17) {
+    noteVisit(out, keyOf(xOf(k) >> Z_SHIFT, yOf(k) >> Z_SHIFT, Z_SQUADRAT), day);
   }
   return out;
 }

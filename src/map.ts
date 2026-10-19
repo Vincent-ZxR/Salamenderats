@@ -3,7 +3,7 @@ import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { mixColor, type Person } from "./person";
-import { keyOf, toTileCoords, tileToLonLat, xOf, yOf } from "./tiles";
+import { keyOf, toTileCoords, tileToLonLat, xOf, yOf, Z_SHIFT, Z_SQUADRAT } from "./tiles";
 
 // Bundlers don't emit MapLibre's worker file, so point it at an explicitly bundled copy.
 maplibregl.setWorkerUrl(workerUrl);
@@ -53,6 +53,8 @@ export class MapView {
   private show14 = true;
   private show17 = true;
   private fc14 = new WeakMap<Person, FC>();
+  showDates = true;
+  private popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "hover-tip" });
 
   constructor(el: HTMLElement) {
     this.map = new maplibregl.Map({
@@ -76,6 +78,46 @@ export class MapView {
     this.map.addControl(new maplibregl.NavigationControl(), "top-right");
     this.loaded = new Promise((r) => this.map.once("load", () => r()));
     this.map.on("moveend", () => this.updateZ17());
+    this.map.on("mousemove", (e) => this.showTooltip(e.lngLat));
+    this.map.on("mouseout", () => this.popup.remove());
+    this.map.on("dragstart", () => this.popup.remove());
+  }
+
+  private showTooltip(at: maplibregl.LngLat) {
+    const visible = this.people.filter((p) => p.visible);
+    const [fx, fy] = toTileCoords(at.lat, at.lng);
+    const x17 = Math.floor(fx);
+    const y17 = Math.floor(fy);
+    const k17 = keyOf(x17, y17);
+    const k14 = keyOf(x17 >> Z_SHIFT, y17 >> Z_SHIFT, Z_SQUADRAT);
+    const fmt = (day: number | undefined) =>
+      this.showDates && day !== undefined ? ` <span class="d">${new Date(day * 86_400_000).toLocaleDateString(undefined, { timeZone: "UTC" })}</span>` : "";
+    const section = (title: string, owners: { p: Person; day: number | undefined }[]) =>
+      owners.length
+        ? `<div class="t">${title}</div>${owners
+            .map((o) => `<div><span class="swatch" style="background:${o.p.color}"></span>${o.p.name}${fmt(o.day)}</div>`)
+            .join("")}`
+        : "";
+    const parts: string[] = [];
+    if (this.show14) {
+      parts.push(
+        section(
+          "Squadrat",
+          visible.filter((p) => p.tiles14.has(k14)).map((p) => ({ p, day: p.first14.get(k14) })),
+        ),
+      );
+    }
+    if (this.show17 && this.map.getZoom() >= MIN_Z17_ZOOM) {
+      parts.push(
+        section(
+          "Squadratinho",
+          visible.filter((p) => p.tiles17.has(k17)).map((p) => ({ p, day: p.first17.get(k17) })),
+        ),
+      );
+    }
+    const html = parts.join("");
+    if (!html) this.popup.remove();
+    else this.popup.setLngLat(at).setHTML(html).addTo(this.map);
   }
 
   async render(people: Person[], show14: boolean, show17: boolean, showMap: boolean, combined: Person | null): Promise<void> {
