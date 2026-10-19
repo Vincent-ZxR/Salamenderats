@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import { bordersOf, loadAreas, visitedCountries, type AreaKind } from "./countries";
+import { areaAt, bordersOf, densestBox, loadAreas, visitedCountries, type AreaKind } from "./countries";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -51,6 +51,7 @@ export class MapView {
   private loaded: Promise<void>;
   private ids: string[] = [];
   private people: Person[] = [];
+  private areaSets: (readonly [AreaKind, Awaited<ReturnType<typeof loadAreas>>])[] = [];
   private show14 = true;
   private show17 = true;
   private fc14 = new WeakMap<Person, FC>();
@@ -105,6 +106,21 @@ export class MapView {
     this.map.on("mousemove", (e) => this.showTooltip(e.lngLat));
     this.map.on("mouseout", () => this.popup.remove());
     this.map.on("dragstart", () => this.popup.remove());
+    this.map.on("click", (e) => this.zoomOnArea(e.lngLat));
+  }
+
+  /** Zooms on the densest block of squadrats of the colored area (finest checked layer) under the click. */
+  private zoomOnArea(at: maplibregl.LngLat): void {
+    if (this.map.getZoom() >= MIN_Z17_ZOOM) return;
+    const visible = this.people.filter((p) => p.visible);
+    for (const kind of ["departments", "regions", "countries"] as const) {
+      const areas = this.areaSets.find(([k]) => k === kind)?.[1];
+      const area = areas && areaAt(areas, at.lng, at.lat);
+      if (!area || !visible.some((p) => visitedCountries(p, areas).has(area.id))) continue;
+      const box = densestBox(area, visible);
+      if (box) this.fitToBox(box, Z_SQUADRAT);
+      return;
+    }
   }
 
   private showTooltip(at: maplibregl.LngLat) {
@@ -154,6 +170,7 @@ export class MapView {
   ): Promise<void> {
     await this.loaded;
     const areaSets = await Promise.all(areaKinds.map(async (k) => [k, await loadAreas(k)] as const));
+    this.areaSets = areaSets;
     this.clearYardHighlight();
     this.people = people;
     this.show14 = show14;

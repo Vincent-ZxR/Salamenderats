@@ -134,6 +134,39 @@ function inCountry(c: Indexed, x: number, y: number): boolean {
   return c.polys.some((poly) => inRing(x, y, poly[0]) && !poly.slice(1).some((hole) => inRing(x, y, hole)));
 }
 
+export function areaAt(areas: Indexed[], lon: number, lat: number): Indexed | undefined {
+  return areas.find((c) => inCountry(c, lon, lat));
+}
+
+/** Tile box (z14, inclusive) of the densest 16×16 block of the people's squadrats inside the area. */
+export function densestBox(area: Indexed, people: Person[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const bin = 16;
+  const seen = new Set<number>();
+  const counts = new Map<string, number>();
+  let best = "";
+  let bestCount = 0;
+  for (const p of people) {
+    for (const k of p.tiles14) {
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const x = xOf(k, Z_SQUADRAT);
+      const y = yOf(k, Z_SQUADRAT);
+      const [lon, lat] = tileToLonLat(x + 0.5, y + 0.5, Z_SQUADRAT);
+      if (!inCountry(area, lon, lat)) continue;
+      const id = `${Math.floor(x / bin)},${Math.floor(y / bin)}`;
+      const c = (counts.get(id) ?? 0) + 1;
+      counts.set(id, c);
+      if (c > bestCount) {
+        bestCount = c;
+        best = id;
+      }
+    }
+  }
+  if (!best) return null;
+  const [bx, by] = best.split(",").map(Number);
+  return { minX: bx * bin, minY: by * bin, maxX: (bx + 1) * bin - 1, maxY: (by + 1) * bin - 1 };
+}
+
 const visited = new WeakMap<Indexed[], WeakMap<Person, Set<number>>>();
 
 /** Ids of the areas containing at least one squadrat of the person. */
