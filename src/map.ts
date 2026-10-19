@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import { loadAreas, visitedCountries, type AreaKind } from "./countries";
+import { bordersOf, loadAreas, visitedCountries, type AreaKind } from "./countries";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -173,7 +173,7 @@ export class MapView {
       // Without the base map, keep the borders of every country as a reference.
       const all = await loadAreas("countries");
       const src = this.track("borders");
-      this.map.addSource(src, { type: "geojson", data: { type: "FeatureCollection", features: all.map((c) => c.country) } });
+      this.map.addSource(src, { type: "geojson", data: bordersOf(all) });
       this.map.addLayer({
         id: this.track("borders-line"),
         type: "line",

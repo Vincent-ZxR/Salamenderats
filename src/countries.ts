@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from "geojson";
+import type { Feature, FeatureCollection, MultiLineString, MultiPolygon, Polygon, Position } from "geojson";
 import { feature } from "topojson-client";
 import type { Person } from "./person";
 import { tileToLonLat, xOf, yOf, Z_SQUADRAT } from "./tiles";
@@ -28,11 +28,54 @@ function bboxOf(polys: Position[][][]): [number, number, number, number] {
 
 export type AreaKind = "countries" | "regions" | "departments";
 
+/** Makes longitudes continuous along a ring so shapes crossing ±180° don't draw a line across the world. */
+function unwrapRing(ring: Position[]): Position[] {
+  const out: Position[] = [];
+  let shift = 0;
+  ring.forEach((p, i) => {
+    if (i > 0) {
+      const d = p[0] + shift - out[i - 1][0];
+      if (d > 180) shift -= 360;
+      else if (d < -180) shift += 360;
+    }
+    out.push([p[0] + shift, p[1]]);
+  });
+  return out;
+}
+
 function index(fc: FeatureCollection<Polygon | MultiPolygon, { name: string }>): Indexed[] {
   return fc.features.map((f, id) => {
     const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
-    return { id, country: f, bbox: bboxOf(polys), polys };
+    const display: Country = {
+      ...f,
+      geometry: { type: "MultiPolygon", coordinates: polys.map((poly) => poly.map(unwrapRing)) },
+    };
+    return { id, country: display, bbox: bboxOf(polys), polys };
   });
+}
+
+/** Outlines of all areas, without the artificial edges (antimeridian, south pole). */
+export function bordersOf(areas: Indexed[]): Feature<MultiLineString> {
+  const lines: Position[][] = [];
+  for (const a of areas) {
+    for (const poly of (a.country.geometry as MultiPolygon).coordinates) {
+      for (const ring of poly) {
+        let cur: Position[] = [];
+        for (let i = 1; i < ring.length; i++) {
+          const [p, q] = [ring[i - 1], ring[i]];
+          if (p[1] < -89 && q[1] < -89) {
+            if (cur.length > 1) lines.push(cur);
+            cur = [];
+            continue;
+          }
+          if (!cur.length) cur.push(p);
+          cur.push(q);
+        }
+        if (cur.length > 1) lines.push(cur);
+      }
+    }
+  }
+  return { type: "Feature", properties: {}, geometry: { type: "MultiLineString", coordinates: lines } };
 }
 
 type AreaFC = FeatureCollection<Polygon | MultiPolygon, { name: string }>;
