@@ -60,6 +60,7 @@ function refresh(fit?: Person) {
     $<HTMLInputElement>("show17").checked,
     $<HTMLInputElement>("showMap").checked,
     current,
+    (["countries", "regions", "departments"] as const).filter((k) => $<HTMLInputElement>(`show-${k}`).checked),
   );
   if (fit) view.fitTo(fit);
 }
@@ -158,6 +159,7 @@ importDialog.addEventListener("click", (e) => {
 $("show14").addEventListener("change", () => refresh());
 $("show17").addEventListener("change", () => refresh());
 $("showMap").addEventListener("change", () => refresh());
+for (const k of ["countries", "regions", "departments"]) $(`show-${k}`).addEventListener("change", () => refresh());
 
 const nameSelect = $<HTMLSelectElement>("name");
 nameSelect.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");

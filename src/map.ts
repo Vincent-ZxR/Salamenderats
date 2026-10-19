@@ -1,4 +1,5 @@
-import type { Feature, FeatureCollection, Polygon } from "geojson";
+import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
+import { loadAreas, visitedCountries, type AreaKind } from "./countries";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -143,8 +144,16 @@ export class MapView {
     else this.popup.setLngLat(at).setHTML(html).addTo(this.map);
   }
 
-  async render(people: Person[], show14: boolean, show17: boolean, showMap: boolean, combined: Person | null): Promise<void> {
+  async render(
+    people: Person[],
+    show14: boolean,
+    show17: boolean,
+    showMap: boolean,
+    combined: Person | null,
+    areaKinds: AreaKind[] = [],
+  ): Promise<void> {
     await this.loaded;
+    const areaSets = await Promise.all(areaKinds.map(async (k) => [k, await loadAreas(k)] as const));
     this.clearYardHighlight();
     this.people = people;
     this.show14 = show14;
@@ -160,6 +169,38 @@ export class MapView {
     this.ids = [];
 
     const visible = people.filter((q) => q.visible);
+    if (areaSets.length) {
+      // Same player colors as squadrats, with a lower opacity so the map stays readable.
+      for (const [kind, areas] of areaSets) {
+        const owners = visible.map((p) => visitedCountries(p, areas));
+        const groups = new Map<string, { color: string; features: Feature<Polygon | MultiPolygon>[] }>();
+        for (const c of areas) {
+          const idxs = visible.map((_, i) => i).filter((i) => owners[i].has(c.id));
+          if (!idxs.length) continue;
+          const id = idxs.join("-");
+          let g = groups.get(id);
+          if (!g) groups.set(id, (g = { color: mixColor(idxs.map((i) => visible[i])), features: [] }));
+          g.features.push(c.country);
+        }
+        const thin = kind === "countries" ? 1.5 : 1;
+        for (const [id, g] of groups) {
+          const src = this.track(`gc-${kind}-${id}`);
+          this.map.addSource(src, { type: "geojson", data: { type: "FeatureCollection", features: g.features } });
+          this.map.addLayer({
+            id: this.track(`gc-${kind}-${id}-fill`),
+            type: "fill",
+            source: src,
+            paint: { "fill-color": g.color, "fill-opacity": 0.15 },
+          });
+          this.map.addLayer({
+            id: this.track(`gc-${kind}-${id}-line`),
+            type: "line",
+            source: src,
+            paint: { "line-color": g.color, "line-width": thin, "line-opacity": 0.5 },
+          });
+        }
+      }
+    }
     if (show14) {
       const masks = new Map<number, number[]>();
       visible.forEach((p, i) => {
