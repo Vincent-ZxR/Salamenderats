@@ -158,7 +158,6 @@ importDialog.addEventListener("click", (e) => {
 $("show14").addEventListener("change", () => refresh());
 $("show17").addEventListener("change", () => refresh());
 $("showMap").addEventListener("change", () => refresh());
-$("showDates").addEventListener("change", () => (view.showDates = $<HTMLInputElement>("showDates").checked));
 
 const nameSelect = $<HTMLSelectElement>("name");
 nameSelect.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");

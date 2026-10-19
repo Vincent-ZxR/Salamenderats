@@ -53,7 +53,6 @@ export class MapView {
   private show14 = true;
   private show17 = true;
   private fc14 = new WeakMap<Person, FC>();
-  showDates = true;
   private popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "hover-tip" });
 
   constructor(el: HTMLElement) {
@@ -76,6 +75,30 @@ export class MapView {
       },
     });
     this.map.addControl(new maplibregl.NavigationControl(), "top-right");
+    let controlContainer: HTMLDivElement | null = null;
+    this.map.addControl(
+      {
+        onAdd: (map) => {
+          const container = document.createElement("div");
+          container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+          controlContainer = container;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "maplibregl-ctrl-reset-2d";
+          button.textContent = "2D";
+          button.title = "Reset to 2D view";
+          button.setAttribute("aria-label", "Reset to 2D view");
+          button.addEventListener("click", () => map.easeTo({ bearing: 0, pitch: 0 }));
+          container.append(button);
+          return container;
+        },
+        onRemove: () => {
+          controlContainer?.remove();
+          controlContainer = null;
+        },
+      },
+      "top-right",
+    );
     this.loaded = new Promise((r) => this.map.once("load", () => r()));
     this.map.on("moveend", () => this.updateZ17());
     this.map.on("mousemove", (e) => this.showTooltip(e.lngLat));
@@ -91,7 +114,7 @@ export class MapView {
     const k17 = keyOf(x17, y17);
     const k14 = keyOf(x17 >> Z_SHIFT, y17 >> Z_SHIFT, Z_SQUADRAT);
     const fmt = (day: number | undefined) =>
-      this.showDates && day !== undefined ? ` <span class="d">${new Date(day * 86_400_000).toLocaleDateString(undefined, { timeZone: "UTC" })}</span>` : "";
+      day !== undefined ? ` <span class="d">${new Date(day * 86_400_000).toLocaleDateString(undefined, { timeZone: "UTC" })}</span>` : "";
     const section = (title: string, owners: { p: Person; day: number | undefined }[]) =>
       owners.length
         ? `<div class="t">${title}</div>${owners

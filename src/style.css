@@ -21,6 +21,7 @@ input[type="text"], select { width: 100%; padding: 6px; margin-top: 2px; }
 .player[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 18%, #fff); color: #111; }
 .player[aria-pressed="true"] .swatch { background: var(--c); }
 .player:focus-visible, .btn:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }
+.maplibregl-ctrl-reset-2d { width: 29px; height: 29px; font: 600 11px/1 system-ui, sans-serif; cursor: pointer; }
 .card { border: 1px solid #ddd; border-radius: 8px; padding: 8px; background: #fff; }
 .card .sub { font-weight: 700; margin: 16px 0 4px; padding-bottom: 3px; font-size: 16px; color: #222; border-bottom: 2px solid #2a9d8f; }
 .card .sub:first-child { margin-top: 0; }
