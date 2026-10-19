@@ -56,6 +56,7 @@ function refresh(fit?: Person) {
   renderStats();
   void view.render(
     people,
+    $<HTMLInputElement>("showCountries").checked,
     $<HTMLInputElement>("show14").checked,
     $<HTMLInputElement>("show17").checked,
     $<HTMLInputElement>("showMap").checked,
@@ -158,6 +159,7 @@ importDialog.addEventListener("click", (e) => {
 $("show14").addEventListener("change", () => refresh());
 $("show17").addEventListener("change", () => refresh());
 $("showMap").addEventListener("change", () => refresh());
+$("showCountries").addEventListener("change", () => refresh());
 
 const nameSelect = $<HTMLSelectElement>("name");
 nameSelect.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");

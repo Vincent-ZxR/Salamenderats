@@ -1,7 +1,8 @@
-import type { Feature, FeatureCollection, Polygon } from "geojson";
+import type { Feature, FeatureCollection, Geometry, MultiPolygon, Polygon, Position } from "geojson";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { visitedCountries } from "./countries";
 import { mixColor, type Person } from "./person";
 import { keyOf, toTileCoords, tileToLonLat, xOf, yOf, Z_SHIFT, Z_SQUADRAT } from "./tiles";
 
@@ -12,6 +13,7 @@ type FC = FeatureCollection<Polygon>;
 const EMPTY: FC = { type: "FeatureCollection", features: [] };
 const MIN_Z17_ZOOM = 10;
 const MAX_Z17_FEATURES = 40000;
+const COUNTRIES_URL = "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson";
 
 function tileFeature(x: number, y: number, z: number, size = 1): Feature<Polygon> {
   const tl = tileToLonLat(x, y, z);
@@ -52,6 +54,8 @@ export class MapView {
   private people: Person[] = [];
   private show14 = true;
   private show17 = true;
+  private countryData: Promise<FeatureCollection<Polygon | MultiPolygon> | null> | null = null;
+  private renderVersion = 0;
   private fc14 = new WeakMap<Person, FC>();
   private popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "hover-tip" });
 
@@ -143,8 +147,31 @@ export class MapView {
     else this.popup.setLngLat(at).setHTML(html).addTo(this.map);
   }
 
-  async render(people: Person[], show14: boolean, show17: boolean, showMap: boolean, combined: Person | null): Promise<void> {
+  async render(
+    people: Person[],
+    showCountries: boolean,
+    show14: boolean,
+    show17: boolean,
+    showMap: boolean,
+    combined: Person | null,
+  ): Promise<void> {
+    const version = ++this.renderVersion;
     await this.loaded;
+    if (version !== this.renderVersion) return;
+    let countries: FeatureCollection<Polygon | MultiPolygon> | null = null;
+    if (showCountries) {
+      this.countryData ??= fetch(COUNTRIES_URL)
+        .then((response) => {
+          if (!response.ok) throw new Error(`Could not load country boundaries (${response.status})`);
+          return response.json() as Promise<FeatureCollection<Polygon | MultiPolygon>>;
+        })
+        .catch((err: unknown) => {
+          console.warn("Could not load country boundaries", err);
+          return null;
+        });
+      countries = await this.countryData;
+      if (version !== this.renderVersion) return;
+    }
     this.clearYardHighlight();
     this.people = people;
     this.show14 = show14;
@@ -160,6 +187,26 @@ export class MapView {
     this.ids = [];
 
     const visible = people.filter((q) => q.visible);
+    if (showCountries && countries && visible.length) {
+      const groups = visitedCountries(countries, visible);
+      for (const [mask, features] of groups) {
+        const color = mixColor(visible.filter((_, i) => mask & (1 << i)));
+        const source = this.track(`countries-${mask}`);
+        this.map.addSource(source, { type: "geojson", data: { type: "FeatureCollection", features } });
+        this.map.addLayer({
+          id: this.track(`countries-${mask}-fill`),
+          type: "fill",
+          source,
+          paint: { "fill-color": color, "fill-opacity": 0.25, "fill-antialias": false },
+        });
+        this.map.addLayer({
+          id: this.track(`countries-${mask}-line`),
+          type: "line",
+          source,
+          paint: { "line-color": color, "line-width": 0.8, "line-opacity": 0.65 },
+        });
+      }
+    }
     if (show14) {
       const masks = new Map<number, number[]>();
       visible.forEach((p, i) => {
