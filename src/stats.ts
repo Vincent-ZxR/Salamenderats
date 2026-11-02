@@ -134,64 +134,12 @@ function component(keys: Set<number>, z: number, start: number): number[] {
   return queue;
 }
 
-/** Convex hull (monotone chain) of integer points. */
-function hull(points: [number, number][]): [number, number][] {
-  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  if (pts.length < 3) return pts;
-  const cross = (o: [number, number], a: [number, number], b: [number, number]) =>
-    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const build = (input: [number, number][]) => {
-    const out: [number, number][] = [];
-    for (const p of input) {
-      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop();
-      out.push(p);
-    }
-    out.pop();
-    return out;
-  };
-  return [...build(pts), ...build(pts.reverse())];
-}
-
-/**
- * Longest line: the largest straight-line distance, in tiles, between two visited tiles of the
- * same 8-connected group. It only depends on tile positions, so adding visited tiles can never
- * reduce it. The farthest pair is always on the convex hull, which keeps the search exact and fast.
- * Returns the shortest path of visited tiles joining the two end tiles, for display.
- */
-export function maxLine(keys: Set<number>, z: number): { size: number; tiles: number[]; box: TileBox | null } {
-  const seen = new Set<number>();
-  let best = -1;
-  let ends: [number, number] | null = null;
-  for (const start of keys) {
-    if (seen.has(start)) continue;
-    const tiles = component(keys, z, start);
-    for (const k of tiles) seen.add(k);
-    const h = hull(tiles.map((k) => [xOf(k, z), yOf(k, z)]));
-    for (let i = 0; i < h.length; i++) {
-      for (let j = i + 1; j < h.length; j++) {
-        const d = Math.hypot(h[i][0] - h[j][0], h[i][1] - h[j][1]);
-        if (d > best) {
-          best = d;
-          ends = [keyOf(h[i][0], h[i][1], z), keyOf(h[j][0], h[j][1], z)];
-        }
-      }
-    }
-    if (h.length === 1 && best < 0) ends = [tiles[0], tiles[0]];
-    if (h.length === 1 && best < 0) best = 0;
-  }
-  if (!ends) return { size: 0, tiles: [], box: null };
-  const path = shortestPath(keys, z, ends[0], ends[1]);
-  const xs = path.map((k) => xOf(k, z));
-  const ys = path.map((k) => yOf(k, z));
-  const box = { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
-  return { size: Math.round(best), tiles: path, box };
-}
-
-/** Shortest 8-connected path of visited tiles from `from` to `to`, ends included. */
-function shortestPath(keys: Set<number>, z: number, from: number, to: number): number[] {
+/** BFS over 8-connected visited tiles; returns the last (farthest) tile reached, its distance and the parents. */
+function bfs(keys: Set<number>, z: number, from: number): { far: number; dist: number; parent: Map<number, number> } {
   const parent = new Map<number, number>([[from, -1]]);
+  const depth = new Map<number, number>([[from, 0]]);
   const queue = [from];
-  for (let i = 0; i < queue.length && !parent.has(to); i++) {
+  for (let i = 0; i < queue.length; i++) {
     const k = queue[i];
     const x = xOf(k, z);
     const y = yOf(k, z);
@@ -200,14 +148,51 @@ function shortestPath(keys: Set<number>, z: number, from: number, to: number): n
         const n = keyOf(x + dx, y + dy, z);
         if ((dx || dy) && keys.has(n) && !parent.has(n)) {
           parent.set(n, k);
+          depth.set(n, depth.get(k)! + 1);
           queue.push(n);
         }
       }
     }
   }
-  const path: number[] = [];
-  for (let k = to; k !== -1; k = parent.get(k)!) path.push(k);
-  return path.reverse();
+  const far = queue[queue.length - 1];
+  return { far, dist: depth.get(far)!, parent };
+}
+
+/**
+ * Longest line: the diameter of the 8-connected groups of visited tiles, i.e. the largest
+ * shortest-path distance (in steps between adjacent tiles) between two tiles of the same group.
+ * Disconnected groups never contribute. It uses repeated BFS sweeps (double sweep), which is
+ * linear in the group size and exact on tree-like shapes. Returns the path joining the two end
+ * tiles, for display.
+ */
+export function maxLine(keys: Set<number>, z: number): { size: number; tiles: number[]; box: TileBox | null } {
+  const seen = new Set<number>();
+  let best = -1;
+  let bestPath: number[] = [];
+  for (const start of keys) {
+    if (seen.has(start)) continue;
+    for (const k of component(keys, z, start)) seen.add(k);
+    let a = bfs(keys, z, start).far;
+    let sweep = bfs(keys, z, a);
+    for (let i = 0; i < 10; i++) {
+      const next = bfs(keys, z, sweep.far);
+      if (next.dist <= sweep.dist) break;
+      a = sweep.far;
+      sweep = next;
+    }
+    // `sweep` was computed from `a`; its parents lead back from sweep.far to a.
+    if (sweep.dist > best) {
+      best = sweep.dist;
+      const path: number[] = [];
+      for (let k = sweep.far; k !== -1; k = sweep.parent.get(k)!) path.push(k);
+      bestPath = path.reverse();
+    }
+  }
+  if (best < 0) return { size: 0, tiles: [], box: null };
+  const xs = bestPath.map((k) => xOf(k, z));
+  const ys = bestPath.map((k) => yOf(k, z));
+  const box = { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  return { size: best, tiles: bestPath, box };
 }
 
 /** Longest run of consecutive visited tiles along a single row or column. */
