@@ -47,6 +47,17 @@ describe("tiles", () => {
 });
 
 describe("stats", () => {
+  it("breaks ties between equal squares using the fewest surrounding tiles", () => {
+    const keys = new Set<number>();
+    for (let x = 0; x < 2; x++) for (let y = 0; y < 2; y++) keys.add(keyOf(x, y, 14));
+    for (let x = 10; x < 12; x++) for (let y = 0; y < 2; y++) keys.add(keyOf(x, y, 14));
+    keys.add(keyOf(2, 0, 14));
+    keys.add(keyOf(2, 2, 14));
+    const s = computeStats(keys, 14);
+    expect(s.maxSquare).toBe(2);
+    expect(s.maxSquareAt).toEqual({ x: 10, y: 0 });
+  });
+
   it("finds max square and yard tiles with all four neighbours visited", () => {
     const keys = new Set<number>();
     for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) keys.add(keyOf(x, y, 14));

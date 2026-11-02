@@ -36,7 +36,6 @@ export function maxSquare(keys: Set<number>, z: number) {
   const sorted = [...keys].sort((a, b) => a - b);
   const dp = new Map<number, number>();
   let best = 0;
-  let at: { x: number; y: number } | null = null;
   for (const k of sorted) {
     const x = xOf(k, z);
     const y = yOf(k, z);
@@ -48,9 +47,33 @@ export function maxSquare(keys: Set<number>, z: number) {
         dp.get(keyOf(x - 1, y - 1, z)) ?? 0,
       );
     dp.set(k, s);
-    if (s > best) {
-      best = s;
-      at = { x: x - s + 1, y: y - s + 1 };
+    if (s > best) best = s;
+  }
+  if (best === 0) return { size: 0, at: null };
+
+  // Among the largest squares, prefer the fewest visited edge-adjacent tiles, then diagonal ones.
+  let at: { x: number; y: number } | null = null;
+  let bestAdj = Infinity;
+  let bestDiag = Infinity;
+  for (const k of sorted) {
+    if (dp.get(k) !== best) continue;
+    const x0 = xOf(k, z) - best + 1;
+    const y0 = yOf(k, z) - best + 1;
+    let adj = 0;
+    for (let i = 0; i < best; i++) {
+      if (keys.has(keyOf(x0 + i, y0 - 1, z))) adj++;
+      if (keys.has(keyOf(x0 + i, y0 + best, z))) adj++;
+      if (keys.has(keyOf(x0 - 1, y0 + i, z))) adj++;
+      if (keys.has(keyOf(x0 + best, y0 + i, z))) adj++;
+    }
+    let diag = 0;
+    for (const [dx, dy] of [[-1, -1], [best, -1], [-1, best], [best, best]]) {
+      if (keys.has(keyOf(x0 + dx, y0 + dy, z))) diag++;
+    }
+    if (adj < bestAdj || (adj === bestAdj && diag < bestDiag)) {
+      bestAdj = adj;
+      bestDiag = diag;
+      at = { x: x0, y: y0 };
     }
   }
   return { size: best, at };
