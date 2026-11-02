@@ -87,6 +87,16 @@ describe("stats", () => {
     expect(computeStats(keys, 14).maxLine).toBeGreaterThan(9);
   });
 
+  it("measures the longest line along the path, not the straight distance", () => {
+    const keys = new Set<number>();
+    for (let x = 0; x <= 10; x++) keys.add(keyOf(x, 0, 14));
+    for (let y = 1; y <= 10; y++) keys.add(keyOf(10, y, 14));
+    for (let x = 0; x < 10; x++) keys.add(keyOf(x, 10, 14));
+    const s = computeStats(keys, 14);
+    expect(s.maxLine).toBe(28);
+    expect(s.maxLineTiles).toHaveLength(29);
+  });
+
   it("finds the longest straight horizontal or vertical run", () => {
     const keys = new Set<number>();
     for (let x = 0; x < 4; x++) keys.add(keyOf(x, 0, 14));
