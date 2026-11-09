@@ -11,7 +11,7 @@ npm run build    # outputs dist/, deploy as a static site
 npm test
 ```
 
-1. Pick who you are (Hugo, Thomas or Vincent), then drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your existing map.
+1. Pick who you are (Hugo, Thomas, Vincent or Seb), then drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your existing map.
 2. Your map and stats (squadrats, Übersquadrat, Yard, squadratinhos, Übersquadratinho, Yardinho) appear on your card. Click an Über/Yard row to zoom on it.
 
 Imported tiles are saved in the browser's local storage. With Supabase configured (below), each import is also shared: everyone sees everyone's maps and stats, and open pages update live.

@@ -19,6 +19,7 @@ export const FRIENDS = [
   { name: "Hugo", color: "#ff00cc" },
   { name: "Thomas", color: "#00c8e6" },
   { name: "Vincent", color: "#ffd400" },
+  { name: "Seb", color: "#ff3333" },
 ] as const;
 
 const MIXES: Record<string, string> = {
