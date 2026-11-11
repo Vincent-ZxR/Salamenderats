@@ -3,6 +3,7 @@ import { decodeTiles, encodeTiles, parsePersonFile, toPersonFile, type PersonFil
 import { MapView } from "./map";
 import { FRIENDS, makePerson, mergeInto, mixColor, type Person } from "./person";
 import { fetchMaps, saveMap, subscribe, syncEnabled } from "./sync";
+import { reconcilePerson, restoreSelection } from "./sync-state";
 import type { FirstSeen } from "./tiles";
 import type { WorkerIn, WorkerOut } from "./import.worker";
 
@@ -12,11 +13,15 @@ const LOCAL_KEY = "squadrats.local";
 const ME_KEY = "squadrats.me";
 
 const people: Person[] = FRIENDS.map((f) => makePerson(f.name, f.color, new Set()));
+const pending = new Set<string>();
 const view = new MapView($("map"));
 
 function saveLocal() {
   try {
-    const files = people.filter((p) => p.tiles17.size).map((p) => toPersonFile(p.name, p.tiles17, p.first17));
+    const files = people.filter((p) => p.tiles17.size || pending.has(p.name)).map((p) => ({
+      ...toPersonFile(p.name, p.tiles17, p.first17),
+      ...(pending.has(p.name) ? { pending: true } : {}),
+    }));
     localStorage.setItem(LOCAL_KEY, JSON.stringify(files));
   } catch {
     alert("Could not save your map in this browser (storage full).");
@@ -25,10 +30,12 @@ function saveLocal() {
 
 const SEL_KEY = "squadrats.selected";
 try {
-  const sel = JSON.parse(localStorage.getItem(SEL_KEY) ?? "null") as string[] | null;
-  if (Array.isArray(sel)) for (const p of people) p.visible = sel.includes(p.name);
-} catch {
-  /* keep defaults */
+  const saved = JSON.parse(localStorage.getItem(SEL_KEY) ?? "null") as unknown;
+  const sel = restoreSelection(saved, people.map((p) => p.name));
+  for (const p of people) p.visible = sel.selected.includes(p.name);
+  localStorage.setItem(SEL_KEY, JSON.stringify(sel));
+} catch (err) {
+  console.warn("Could not restore player selection", err);
 }
 
 let combinedCache: { sources: Person[]; person: Person } | null = null;
@@ -135,7 +142,10 @@ $("players").addEventListener("click", (e) => {
   const person = people.find((p) => p.name === btn?.dataset.name);
   if (!person) return;
   person.visible = !person.visible;
-  localStorage.setItem(SEL_KEY, JSON.stringify(people.filter((p) => p.visible).map((p) => p.name)));
+  localStorage.setItem(SEL_KEY, JSON.stringify({
+    selected: people.filter((p) => p.visible).map((p) => p.name),
+    known: people.map((p) => p.name),
+  }));
   refresh();
 });
 
@@ -212,20 +222,18 @@ function runImport(files: File[]) {
       people[idx] = fresh;
     }
     const { person } = addTiles(name, imported, importedFirst);
+    if (syncEnabled) pending.add(name);
+    syncRevision++;
     saveLocal();
     const summary = `Done: ${m.processed} activities imported for ${name}, ${m.skipped} skipped.`;
     progress.textContent = summary;
     refresh(person);
     if (syncEnabled) {
       progress.textContent = `${summary} Sharing…`;
-      push(person).then(
+      sharePending(name).then(
         () => (progress.textContent = `${summary} Shared with your friends ✓`),
         (err: Error) => {
-          if (/wrong passcode/i.test(err.message)) {
-            alert(
-              "Mot de passe incorrect. Vos activités ont été importées sur cet appareil, mais elles n'ont pas été partagées.",
-            );
-          }
+          alert(`Le partage a échoué : ${err.message}. Vérifiez la sauvegarde locale avant de fermer cette page.`);
           progress.textContent = `${summary} Could not share: ${err.message}`;
         },
       );
@@ -260,19 +268,46 @@ drop.addEventListener("drop", (e) => {
 });
 
 const push = (person: Person) => saveMap(person.name, encodeTiles(person.tiles17, person.first17));
+let syncRevision = 0;
+let pullNumber = 0;
+const sharing = new Map<string, Promise<void>>();
+
+function sharePending(name: string): Promise<void> {
+  const existing = sharing.get(name);
+  if (existing) return existing;
+  const operation = Promise.resolve().then(async () => {
+    while (pending.has(name)) {
+      const person = people.find((p) => p.name === name);
+      if (!person) throw new Error(`Unknown player: ${name}`);
+      await push(person);
+      if (people.find((p) => p.name === name) === person) {
+        pending.delete(name);
+        syncRevision++;
+        saveLocal();
+      }
+    }
+  }).finally(() => sharing.delete(name));
+  sharing.set(name, operation);
+  return operation;
+}
 
 /** Replaces the cached view with the shared maps after a successful remote read. */
 async function pull(): Promise<void> {
+  const revision = syncRevision;
+  const number = ++pullNumber;
   const remote = await fetchMaps();
+  if (revision !== syncRevision || number !== pullNumber) return;
   const remoteTiles = new Map(remote.map((r) => [r.name, decodeTiles(r.tiles)]));
   let changed = false;
   for (let idx = 0; idx < people.length; idx++) {
     const person = people[idx];
-    const { tiles17: tiles, first17 } = remoteTiles.get(person.name) ?? { tiles17: new Set<number>(), first17: new Map() };
-    const same = person.tiles17.size === tiles.size && [...person.tiles17].every((tile) => tiles.has(tile));
-    if (!same || first17.size > person.first17.size) {
-      const replacement = makePerson(person.name, person.color, tiles, first17);
-      replacement.visible = person.visible;
+    const remotePerson = remoteTiles.get(person.name);
+    if (!remotePerson && person.tiles17.size && !pending.has(person.name)) {
+      pending.add(person.name);
+      changed = true;
+    }
+    const replacement = reconcilePerson(person, remotePerson, pending.has(person.name));
+    if (replacement !== person) {
       people[idx] = replacement;
       changed = true;
     }
@@ -284,8 +319,16 @@ async function pull(): Promise<void> {
 }
 
 function startSync() {
-  const sync = () => pull().catch((err: Error) => console.warn("Sync failed", err));
-  pull().catch((err: Error) => console.warn("Sync failed", err));
+  const sync = () => {
+    void pull().then(async () => {
+      for (const name of pending) await sharePending(name);
+    }).catch((err: Error) => {
+      console.warn("Sync failed", err);
+      progress.textContent = `Sync failed: ${err.message}. Local changes may not have been shared.`;
+      alert(`Sync failed: ${err.message}. Local changes may not have been shared.`);
+    });
+  };
+  sync();
   subscribe(sync);
   window.addEventListener("focus", sync);
 }
@@ -296,7 +339,10 @@ function init() {
     const saved = JSON.parse(localStorage.getItem(LOCAL_KEY) ?? "[]") as PersonFile[];
     for (const f of saved) {
       const parsed = parsePersonFile(f);
-      if (people.some((p) => p.name === parsed.name)) addTiles(parsed.name, parsed.tiles17, parsed.first17);
+      if (people.some((p) => p.name === parsed.name)) {
+        addTiles(parsed.name, parsed.tiles17, parsed.first17);
+        if (f.pending) pending.add(parsed.name);
+      }
     }
   } catch (err) {
     console.warn("Could not read saved data", err);

@@ -26,6 +26,10 @@ Imported tiles are saved in the browser's local storage. With Supabase configure
 
 Everyone can read all maps, but writes only go through the `save_map` function, which checks the passcode. Without these variables the app works in local-only mode.
 
+For an existing Supabase project created before Seb was added, run [supabase/allow-seb.sql](./supabase/allow-seb.sql) in the SQL Editor. Deploying the website alone does not update the database function. This migration leaves the existing passcode and maps unchanged; do not re-run the full schema with `CHANGE_ME`, as it resets the passcode.
+
+If sharing fails, the imported map remains on the importing browser and is retried when the page loads or regains focus. It is not available to friends until sharing succeeds. Imports lost from browser storage before this protection was installed need to be imported again.
+
 ## Deploy
 
 It is a plain static Vite site, so any static host works (Vercel, Cloudflare Pages, GitHub Pages): build command `npm run build`, output directory `dist`.

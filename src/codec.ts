@@ -46,6 +46,8 @@ export interface PersonFile {
   updated: string;
   /** Zoom-17 tile keys, see encodeTiles (the dates part is optional). */
   tiles17: string;
+  /** Local changes that have not yet been shared. */
+  pending?: boolean;
 }
 
 // Days are stored relative to 2000-01-01; 0 means "unknown".
