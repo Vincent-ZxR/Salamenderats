@@ -30,10 +30,11 @@ class Element {
   hidden = false;
   disabled = false;
   files: File[] = [];
+  attributes = new Map<string, string>();
   listeners = new Map<string, (event: Event) => void>();
   addEventListener(type: string, handler: (event: Event) => void) { this.listeners.set(type, handler); }
   closest(_selector: string): Element | null { return null; }
-  setAttribute() {}
+  setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   get valueAsNumber() { return Number(this.value); }
 }
 
@@ -147,6 +148,33 @@ describe("import and sync", () => {
     expect(JSON.parse(storage.get("squadrats.local.account-1")!)[0].tiles17).toBe(encodeTiles(new Set([1, 3])));
   });
 
+  it("switches sections and collapses the menu without clearing the planner", async () => {
+    await load();
+    elements.get("plan-size")!.value = "2";
+    elements.get("plan-find")!.listeners.get("click")!(new Event("click"));
+    const planned = elements.get("plan-result")!.textContent;
+    elements.get("nav-layers")!.listeners.get("click")!(new Event("click"));
+    expect(elements.get("section-layers")!.hidden).toBe(false);
+    expect(elements.get("section-plan")!.hidden).toBe(true);
+    expect(elements.get("nav-layers")!.attributes.get("aria-pressed")).toBe("true");
+    elements.get("panel-toggle")!.listeners.get("click")!(new Event("click"));
+    expect(elements.get("panel-content")!.hidden).toBe(true);
+    expect(elements.get("panel-toggle")!.attributes.get("aria-expanded")).toBe("false");
+    elements.get("panel-toggle")!.listeners.get("click")!(new Event("click"));
+    elements.get("nav-plan")!.listeners.get("click")!(new Event("click"));
+    expect(elements.get("section-plan")!.hidden).toBe(false);
+    expect(elements.get("plan-result")!.textContent).toBe(planned);
+  });
+
+  it("shows an import prompt instead of zero stats for an empty map", async () => {
+    api.fetchMaps.mockResolvedValue([{ id: "account-1", username: "Seb", tiles: null }]);
+    await load();
+    expect(elements.get("stats-empty")!.hidden).toBe(false);
+    expect(elements.get("stats-empty-message")!.textContent).toContain("No visited tiles");
+    expect(elements.get("empty-import")!.disabled).toBe(false);
+    expect(elements.get("stats-details")!.hidden).toBe(true);
+  });
+
   it("retries an empty replacement without restoring the previous shared map", async () => {
     await load();
     (document.getElementById("replace") as HTMLInputElement).checked = true;
@@ -254,6 +282,10 @@ describe("import and sync", () => {
     api.account = null;
     await load();
     expect(elements.get("open-import")!.disabled).toBe(true);
+    expect(elements.get("empty-account")!.hidden).toBe(false);
+    expect(elements.get("stats-empty-message")!.textContent).toContain("finish setting up your profile");
+    elements.get("empty-account")!.listeners.get("click")!(new Event("click"));
+    expect(elements.get("account")!.hidden).toBe(false);
     elements.get("files")!.files = [{} as File];
     elements.get("files")!.listeners.get("change")!(new Event("change"));
     expect(api.saveMap).not.toHaveBeenCalled();

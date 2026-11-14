@@ -6,7 +6,7 @@ import {
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 export async function setupAccount(onReady: (id: string, username: string) => Promise<void>, onChange: () => void): Promise<void> {
-  $("account").hidden = false;
+  $("nav-account").hidden = false;
   const status = $("account-status");
   const session = await getSession();
   watchSession(session?.user.id ?? null);
@@ -60,7 +60,7 @@ export async function setupAccount(onReady: (id: string, username: string) => Pr
   if (!own) return;
 
   $("account-name").textContent = `${own.username} (${session.user.email ?? "signed in"})`;
-  $("friends-panel").hidden = false;
+  $("nav-friends").hidden = false;
 
   async function loadFriends() {
     const relationships = await fetchRelationships();

@@ -21,6 +21,37 @@ let ownName: string | null = null;
 let selectionKey = "squadrats.selected";
 let readyToImport = !syncEnabled;
 
+const sections = {
+  overview: "section-overview",
+  plan: "section-plan",
+  layers: "section-layers",
+  friends: "friends-panel",
+  account: "account",
+} as const;
+type Section = keyof typeof sections;
+
+function showSection(selected: Section): void {
+  for (const section of Object.keys(sections) as Section[]) {
+    $(sections[section]).hidden = section !== selected;
+    $(`nav-${section}`).setAttribute("aria-pressed", String(section === selected));
+  }
+}
+
+for (const section of Object.keys(sections) as Section[]) {
+  $(`nav-${section}`).addEventListener("click", () => showSection(section));
+}
+
+let panelCollapsed = false;
+$("panel-toggle").addEventListener("click", () => {
+  panelCollapsed = !panelCollapsed;
+  $("panel-content").hidden = panelCollapsed;
+  $("panel").setAttribute("data-collapsed", String(panelCollapsed));
+  $("panel-toggle").setAttribute("aria-expanded", String(!panelCollapsed));
+  $("panel-toggle").textContent = panelCollapsed ? "Show menu" : "Hide menu";
+});
+$("empty-import").addEventListener("click", () => $<HTMLButtonElement>("open-import").click());
+$("empty-account").addEventListener("click", () => showSection("account"));
+
 function saveLocal() {
   try {
     const files = people.filter((p) => (!syncEnabled || p.name === ownName) && (p.tiles17.size || pending.has(p.name))).map((p) => ({
@@ -118,28 +149,47 @@ function renderPlayers() {
 function renderStats() {
   const sel = people.filter((p) => p.visible);
   $("stats-title").textContent = sel.length ? `Stats · ${sel.map((p) => p.name).join(" + ")}` : "Stats";
-  if (!current) {
-    $("stats").innerHTML = `<div class="empty">Select at least one player.</div>`;
+  const empty = !current || current.tiles17.size === 0;
+  $("stats-empty").hidden = !empty;
+  $("stats-details").hidden = empty;
+  $("stats-summary").hidden = empty;
+  if (empty) {
+    const needsAccount = syncEnabled && people.length === 0;
+    $("stats-empty-message").textContent = needsAccount
+      ? "Open Account to sign in or finish setting up your profile."
+      : current
+        ? "No visited tiles for the selected players. Select another player or import activities."
+        : "Select at least one player to see their stats.";
+    $("empty-account").hidden = !needsAccount;
+    $("empty-import").hidden = !current;
+    $<HTMLButtonElement>("empty-import").disabled = !readyToImport;
+    $("stats-summary").innerHTML = "";
+    $("stats").innerHTML = "";
     return;
   }
-  const p = current;
+  const p = current!;
+  $("stats-summary").innerHTML = `
+    <div class="summary-card"><strong>${p.stats14.count}</strong><span>Squadrats</span></div>
+    <div class="summary-card"><strong>${p.stats17.count}</strong><span>Squadratinhos</span></div>`;
+  const row = (kind: string, label: string, value: string | number, available: boolean) =>
+    `<tr><td colspan="2"><button type="button" class="stat-action" data-kind="${kind}" ${available ? "" : "disabled"}><span>${label}</span><strong>${value}</strong></button></td></tr>`;
   $("stats").innerHTML = `
     <div class="card">
       <div class="sub">Squadrats</div>
       <table>
-        <tr class="go" data-kind="dense14" title="Zoom on the densest area"><td>All</td><td>${p.stats14.count}</td></tr>
-        <tr class="go" data-kind="uber14" title="Zoom on the Übersquadrat"><td>Übersquadrat</td><td>${p.stats14.maxSquare} × ${p.stats14.maxSquare}</td></tr>
-        <tr class="go" data-kind="yard14" title="Zoom on the Yard"><td>Yard</td><td>${p.stats14.maxCluster}</td></tr>
-        <tr class="go" data-kind="line14" title="Zoom on the Ligne"><td>Ligne</td><td>${p.stats14.maxLine}</td></tr>
-        <tr class="go" data-kind="straight14" title="Zoom on the Dresta"><td>Dresta</td><td>${p.stats14.maxStraight}</td></tr>
+        ${row("dense14", "All", p.stats14.count, p.stats14.count > 0)}
+        ${row("uber14", "Übersquadrat", `${p.stats14.maxSquare} × ${p.stats14.maxSquare}`, !!p.stats14.maxSquareAt)}
+        ${row("yard14", "Yard", p.stats14.maxCluster, !!p.stats14.maxClusterBox)}
+        ${row("line14", "Ligne", p.stats14.maxLine, !!p.stats14.maxLineBox)}
+        ${row("straight14", "Dresta", p.stats14.maxStraight, !!p.stats14.maxStraightBox)}
       </table>
       <div class="sub">Squadratinhos</div>
       <table>
-        <tr class="go" data-kind="dense17" title="Zoom on the densest area"><td>All</td><td>${p.stats17.count}</td></tr>
-        <tr class="go" data-kind="uber17" title="Zoom on the Übersquadratinho"><td>Übersquadratinho</td><td>${p.stats17.maxSquare} × ${p.stats17.maxSquare}</td></tr>
-        <tr class="go" data-kind="yard17" title="Zoom on the Yardinho"><td>Yardinho</td><td>${p.stats17.maxCluster}</td></tr>
-        <tr class="go" data-kind="line17" title="Zoom on the Ligninho"><td>Ligninho</td><td>${p.stats17.maxLine}</td></tr>
-        <tr class="go" data-kind="straight17" title="Zoom on the Drestinho"><td>Drestinho</td><td>${p.stats17.maxStraight}</td></tr>
+        ${row("dense17", "All", p.stats17.count, p.stats17.count > 0)}
+        ${row("uber17", "Übersquadratinho", `${p.stats17.maxSquare} × ${p.stats17.maxSquare}`, !!p.stats17.maxSquareAt)}
+        ${row("yard17", "Yardinho", p.stats17.maxCluster, !!p.stats17.maxClusterBox)}
+        ${row("line17", "Ligninho", p.stats17.maxLine, !!p.stats17.maxLineBox)}
+        ${row("straight17", "Drestinho", p.stats17.maxStraight, !!p.stats17.maxStraightBox)}
       </table>
     </div>`;
 }
@@ -157,7 +207,7 @@ $("players").addEventListener("click", (e) => {
 });
 
 $("stats").addEventListener("click", (e) => {
-  const row = (e.target as HTMLElement).closest<HTMLElement>("tr.go");
+  const row = (e.target as HTMLElement).closest<HTMLElement>("button[data-kind]");
   const kind = row?.dataset.kind;
   if (!kind || !current) return;
   const z = kind.endsWith("17") ? 17 : 14;
@@ -470,6 +520,7 @@ function startSync() {
       if (!applied) return;
       readyToImport = true;
       $<HTMLButtonElement>("open-import").disabled = false;
+      renderStats();
       for (const name of pending) await sharePending(name);
       $("sync-status").textContent = "Maps synced.";
     }).catch((err: Error) => {

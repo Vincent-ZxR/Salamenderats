@@ -17,6 +17,8 @@ npm test
 4. Your map and stats (squadrats, Übersquadrat, Yard, squadratinhos, Übersquadratinho, Yardinho) appear on your card. Click an Über/Yard row to zoom on it.
 5. Use **Square planner** to pick a player, tile type, and target size (1–100). Suggest a square to find the position with the most visited tiles anywhere in that player's map. Missing tiles are orange; place the square on the map or use the buttons or keyboard arrows (while the planner or map is focused) to move it one tile at a time. The count updates when that player's map changes. This does not calculate a route or account for accessibility.
 
+Use the sidebar menu to switch between **Overview**, **Plan**, **Layers**, and, when shared sync is enabled, **Friends** and **Account**. Player filters stay visible across sections. Expand **Detailed stats** for map highlights and explanations, or hide the menu to give the map more room.
+
 Your own imported tiles are saved in browser local storage. With Supabase configured (below), they are also shared only with accepted friends. Updates are checked on focus and every 30 seconds.
 
 ## Shared sync with Supabase

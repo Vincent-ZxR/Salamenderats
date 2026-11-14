@@ -9,8 +9,27 @@
     <aside id="panel">
       <div class="top">
         <h1>Squadrats</h1>
-        <button id="open-import" class="btn" type="button">⬆ Import</button>
+        <div class="top-actions">
+          <button id="open-import" class="btn" type="button">⬆ Import</button>
+          <button id="panel-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="panel-content">Hide menu</button>
+        </div>
       </div>
+
+      <div id="panel-content">
+      <section class="player-section">
+        <h2>Players</h2>
+        <div id="players" class="players"></div>
+      </section>
+
+      <nav class="menu" aria-label="Map tools">
+        <button id="nav-overview" type="button" aria-pressed="true" aria-controls="section-overview">Overview</button>
+        <button id="nav-plan" type="button" aria-pressed="false" aria-controls="section-plan">Plan</button>
+        <button id="nav-layers" type="button" aria-pressed="false" aria-controls="section-layers">Layers</button>
+        <button id="nav-friends" type="button" aria-pressed="false" aria-controls="friends-panel" hidden>Friends</button>
+        <button id="nav-account" type="button" aria-pressed="false" aria-controls="account" hidden>Account</button>
+      </nav>
+      <div id="account-status" class="hint status" role="status"></div>
+      <div id="sync-status" class="hint status" role="status"></div>
 
       <section id="account" hidden>
         <h2>Account</h2>
@@ -30,30 +49,39 @@
             <div class="hint">3–24 lowercase letters, digits or underscores. Your username cannot be changed.</div>
             <button class="btn" type="submit">Create profile</button>
           </form>
-          <div id="friends-panel" hidden>
-            <h2>Friends</h2>
-            <form id="friend-form">
-              <label>Friend's username <input id="friend-name" type="text" required /></label>
-              <button type="submit">Send request</button>
-            </form>
-            <div id="friends-list"></div>
-          </div>
         </div>
-        <div id="account-status" class="hint" role="status"></div>
-        <div id="sync-status" class="hint" role="status"></div>
       </section>
 
-      <section>
-        <h2>Players</h2>
-        <div id="players" class="players"></div>
+      <section id="friends-panel" hidden>
+        <h2>Friends</h2>
+        <form id="friend-form" class="card">
+          <label>Friend's username <input id="friend-name" type="text" required /></label>
+          <button type="submit">Send request</button>
+        </form>
+        <div id="friends-list"></div>
       </section>
 
-      <section>
+      <section id="section-overview">
         <h2 id="stats-title">Stats</h2>
-        <div id="stats"></div>
+        <div id="stats-empty" class="card empty" hidden>
+          <p id="stats-empty-message"></p>
+          <button id="empty-import" class="btn" type="button">Import activities</button>
+          <button id="empty-account" type="button" hidden>Go to account</button>
+        </div>
+        <div id="stats-summary" class="stats-summary"></div>
+        <details id="stats-details" hidden>
+          <summary>Detailed stats</summary>
+          <p class="hint">Select a statistic to show it on the map.</p>
+          <div id="stats"></div>
+          <details class="stat-help">
+            <summary>What do these mean?</summary>
+            <p><strong>Übersquadrat:</strong> largest fully visited square. <strong>Yard:</strong> largest connected group of tiles whose four neighbours are visited.</p>
+            <p><strong>Ligne:</strong> a longest connected path. <strong>Dresta:</strong> longest straight horizontal or vertical run. The “inho” names use smaller tiles.</p>
+          </details>
+        </details>
       </section>
 
-      <section>
+      <section id="section-plan" hidden>
         <h2>Square planner</h2>
         <div class="card planner">
           <label>Player <select id="plan-person"></select></label>
@@ -82,7 +110,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="section-layers" hidden>
         <h2>Layers</h2>
         <label><input id="show14" type="checkbox" checked /> Squadrats</label>
         <label><input id="show17" type="checkbox" checked /> Squadratinhos</label>
@@ -91,6 +119,7 @@
         <label><input id="show-departments" type="checkbox" /> French départements</label>
         <label><input id="showMap" type="checkbox" checked /> Base map</label>
       </section>
+      </div>
     </aside>
 
     <dialog id="import-dialog">
