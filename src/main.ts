@@ -3,40 +3,45 @@ import { decodeTiles, encodeTiles, parsePersonFile, toPersonFile, type PersonFil
 import { MapView } from "./map";
 import { FRIENDS, makePerson, mergeInto, mixColor, type Person } from "./person";
 import { missingTiles, suggestSquare, type Square } from "./planner";
-import { fetchMaps, saveMap, subscribe, syncEnabled } from "./sync";
+import { fetchMaps, saveMap, syncEnabled } from "./sync";
+import { setupAccount } from "./account";
 import { reconcilePerson, restoreSelection } from "./sync-state";
 import type { FirstSeen } from "./tiles";
 import type { WorkerIn, WorkerOut } from "./import.worker";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const LOCAL_KEY = "squadrats.local";
+let localKey = "squadrats.local";
 const ME_KEY = "squadrats.me";
 
-const people: Person[] = FRIENDS.map((f) => makePerson(f.name, f.color, new Set()));
+const people: Person[] = syncEnabled ? [] : FRIENDS.map((f) => makePerson(f.name, f.color, new Set()));
 const pending = new Set<string>();
 const view = new MapView($("map"));
+let ownName: string | null = null;
+let selectionKey = "squadrats.selected";
+let readyToImport = !syncEnabled;
 
 function saveLocal() {
   try {
-    const files = people.filter((p) => p.tiles17.size || pending.has(p.name)).map((p) => ({
+    const files = people.filter((p) => (!syncEnabled || p.name === ownName) && (p.tiles17.size || pending.has(p.name))).map((p) => ({
       ...toPersonFile(p.name, p.tiles17, p.first17),
       ...(pending.has(p.name) ? { pending: true } : {}),
     }));
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(files));
+    localStorage.setItem(localKey, JSON.stringify(files));
   } catch {
     alert("Could not save your map in this browser (storage full).");
   }
 }
 
-const SEL_KEY = "squadrats.selected";
-try {
-  const saved = JSON.parse(localStorage.getItem(SEL_KEY) ?? "null") as unknown;
-  const sel = restoreSelection(saved, people.map((p) => p.name));
-  for (const p of people) p.visible = sel.selected.includes(p.name);
-  localStorage.setItem(SEL_KEY, JSON.stringify(sel));
-} catch (err) {
-  console.warn("Could not restore player selection", err);
+function loadSelection(persist = true) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(selectionKey) ?? "null") as unknown;
+    const sel = restoreSelection(saved, people.map((p) => p.name));
+    for (const p of people) p.visible = sel.selected.includes(p.name);
+    if (persist) localStorage.setItem(selectionKey, JSON.stringify(sel));
+  } catch (err) {
+    console.warn("Could not restore player selection", err);
+  }
 }
 
 let combinedCache: { sources: Person[]; person: Person } | null = null;
@@ -144,7 +149,7 @@ $("players").addEventListener("click", (e) => {
   const person = people.find((p) => p.name === btn?.dataset.name);
   if (!person) return;
   person.visible = !person.visible;
-  localStorage.setItem(SEL_KEY, JSON.stringify({
+  localStorage.setItem(selectionKey, JSON.stringify({
     selected: people.filter((p) => p.visible).map((p) => p.name),
     known: people.map((p) => p.name),
   }));
@@ -180,6 +185,7 @@ $("stats").addEventListener("click", (e) => {
 });
 
 const importDialog = $<HTMLDialogElement>("import-dialog");
+$<HTMLButtonElement>("open-import").disabled = syncEnabled;
 $("open-import").addEventListener("click", () => importDialog.showModal());
 importDialog.addEventListener("click", (e) => {
   if (e.target === importDialog) importDialog.close();
@@ -191,7 +197,7 @@ $("showMap").addEventListener("change", () => refresh());
 for (const k of ["countries", "regions", "departments"]) $(`show-${k}`).addEventListener("change", () => refresh());
 
 const nameSelect = $<HTMLSelectElement>("name");
-nameSelect.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+nameSelect.innerHTML = syncEnabled ? "" : FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
 const savedMe = localStorage.getItem(ME_KEY);
 if (savedMe && FRIENDS.some((f) => f.name === savedMe)) nameSelect.value = savedMe;
 nameSelect.addEventListener("change", () => localStorage.setItem(ME_KEY, nameSelect.value));
@@ -200,7 +206,7 @@ const planPerson = $<HTMLSelectElement>("plan-person");
 const planType = $<HTMLSelectElement>("plan-type");
 const planSize = $<HTMLInputElement>("plan-size");
 const planPlace = $<HTMLButtonElement>("plan-place");
-planPerson.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+planPerson.innerHTML = syncEnabled ? "" : FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
 planPerson.value = nameSelect.value;
 let plan: { person: string; square: Square } | null = null;
 let placing = false;
@@ -313,6 +319,10 @@ let importing = false;
 function runImport(files: File[]) {
   const name = nameSelect.value;
   if (importing || !files.length) return;
+  if (!readyToImport || !people.some((person) => person.name === name) || (syncEnabled && name !== ownName)) {
+    progress.textContent = "Sign in and sync your map before importing.";
+    return;
+  }
   importing = true;
   const replace = $<HTMLInputElement>("replace").checked;
   const worker = new Worker(new URL("./import.worker.ts", import.meta.url), { type: "module" });
@@ -379,7 +389,7 @@ drop.addEventListener("drop", (e) => {
   runImport([...(e.dataTransfer?.files ?? [])]);
 });
 
-const push = (person: Person) => saveMap(person.name, encodeTiles(person.tiles17, person.first17));
+const push = (person: Person) => saveMap(encodeTiles(person.tiles17, person.first17));
 let syncRevision = 0;
 let pullNumber = 0;
 const sharing = new Map<string, Promise<void>>();
@@ -404,54 +414,82 @@ function sharePending(name: string): Promise<void> {
 }
 
 /** Replaces the cached view with the shared maps after a successful remote read. */
-async function pull(): Promise<void> {
+async function pull(): Promise<boolean> {
   const revision = syncRevision;
   const number = ++pullNumber;
   const remote = await fetchMaps();
-  if (revision !== syncRevision || number !== pullNumber) return;
-  const remoteTiles = new Map(remote.map((r) => [r.name, decodeTiles(r.tiles)]));
+  if (revision !== syncRevision || number !== pullNumber) return false;
+  if (!remote.some((r) => r.username === ownName)) throw new Error("Your profile is unavailable");
   let changed = false;
-  for (let idx = 0; idx < people.length; idx++) {
+  for (let idx = people.length - 1; idx >= 0; idx--) {
+    if (!remote.some((r) => r.username === people[idx].name)) {
+      people.splice(idx, 1);
+      changed = true;
+    }
+  }
+  for (const entry of remote) {
+    let idx = people.findIndex((person) => person.name === entry.username);
+    if (idx === -1) {
+      const palette = ["#ff00cc", "#00a6c4", "#c79c00", "#e43b3b", "#6a4cf0", "#2a9d55"];
+      const color = palette[[...entry.id].reduce((hash, c) => (hash * 31 + c.charCodeAt(0)) >>> 0, 0) % palette.length];
+      people.push(makePerson(entry.username, color, new Set()));
+      idx = people.length - 1;
+      changed = true;
+    }
     const person = people[idx];
-    const remotePerson = remoteTiles.get(person.name);
-    if (!remotePerson && person.tiles17.size && !pending.has(person.name)) {
+    const remotePerson = entry.tiles === null ? undefined : decodeTiles(entry.tiles);
+    if (person.name === ownName && !remotePerson && person.tiles17.size && !pending.has(person.name)) {
       pending.add(person.name);
       changed = true;
     }
-    const replacement = reconcilePerson(person, remotePerson, pending.has(person.name));
+    const replacement = !remotePerson && person.name !== ownName && person.tiles17.size
+      ? makePerson(person.name, person.color, new Set())
+      : reconcilePerson(person, remotePerson, pending.has(person.name));
+    if (replacement !== person) replacement.visible = person.visible;
     if (replacement !== person) {
       people[idx] = replacement;
       changed = true;
     }
   }
   if (changed) {
+    if (plan && !people.some((person) => person.name === plan!.person)) clearPlanner();
+    const previous = planPerson.value;
+    planPerson.innerHTML = people.map((p) => `<option value="${p.name}">${p.name}</option>`).join("");
+    planPerson.value = people.some((p) => p.name === previous) ? previous : ownName ?? "";
+    loadSelection();
     saveLocal();
     refresh();
   }
+  return true;
 }
 
+let syncNow: () => void = () => {};
 function startSync() {
-  const sync = () => {
-    void pull().then(async () => {
+  syncNow = () => {
+    void pull().then(async (applied) => {
+      if (!applied) return;
+      readyToImport = true;
+      $<HTMLButtonElement>("open-import").disabled = false;
       for (const name of pending) await sharePending(name);
+      $("sync-status").textContent = "Maps synced.";
     }).catch((err: Error) => {
       console.warn("Sync failed", err);
       progress.textContent = `Sync failed: ${err.message}. Local changes may not have been shared.`;
-      alert(`Sync failed: ${err.message}. Local changes may not have been shared.`);
+      $("sync-status").textContent = `Sync failed: ${err.message}. Local changes may not have been shared.`;
     });
   };
-  sync();
-  subscribe(sync);
-  window.addEventListener("focus", sync);
+  syncNow();
+  window.addEventListener("focus", syncNow);
+  window.setInterval(syncNow, 30000);
 }
 
 // Startup: restore what was imported earlier in this browser
-function init() {
+function restoreLocal() {
   try {
-    const saved = JSON.parse(localStorage.getItem(LOCAL_KEY) ?? "[]") as PersonFile[];
+    const saved = JSON.parse(localStorage.getItem(localKey) ?? "[]") as PersonFile[];
     for (const f of saved) {
       const parsed = parsePersonFile(f);
-      if (people.some((p) => p.name === parsed.name)) {
+      if ((!syncEnabled || parsed.name === ownName) && people.some((p) => p.name === parsed.name)) {
         addTiles(parsed.name, parsed.tiles17, parsed.first17);
         if (f.pending) pending.add(parsed.name);
       }
@@ -459,9 +497,37 @@ function init() {
   } catch (err) {
     console.warn("Could not read saved data", err);
   }
+}
+
+function init() {
+  if (syncEnabled) {
+    refresh();
+    void setupAccount(async (id, username) => {
+      ownName = username;
+      localKey = `squadrats.local.${id}`;
+      selectionKey = `squadrats.selected.${id}`;
+      people.push(makePerson(username, "#2a9d8f", new Set()));
+      nameSelect.innerHTML = `<option value="${username}">${username}</option>`;
+      nameSelect.value = username;
+      nameSelect.disabled = true;
+      planPerson.innerHTML = `<option value="${username}">${username}</option>`;
+      planPerson.value = username;
+      restoreLocal();
+      loadSelection(false);
+      $("sync-status").textContent = "Loading your map before imports are enabled.";
+      const me = people[0];
+      refresh(me.tiles17.size ? me : undefined);
+      startSync();
+    }, () => syncNow()).catch((err: Error) => {
+      console.error("Account setup failed", err);
+      $("account-status").textContent = `Account setup failed: ${err.message}`;
+    });
+    return;
+  }
+  restoreLocal();
+  loadSelection();
   const me = people.find((p) => p.name === nameSelect.value);
   refresh(me?.tiles17.size ? me : undefined);
-  if (syncEnabled) startSync();
 }
 
 init();

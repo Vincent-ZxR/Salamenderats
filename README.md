@@ -1,6 +1,6 @@
 # Squadrats (static)
 
-Compute squadrats (zoom-14 tiles) and squadratinhos (zoom-17 tiles) from your Strava archive or GPX/FIT/TCX files. No backend: files are parsed in the browser and never uploaded.
+Compute squadrats (zoom-14 tiles) and squadratinhos (zoom-17 tiles) from your Strava archive or GPX/FIT/TCX files. Files are parsed in the browser and are not uploaded. If Supabase is configured, visited tiles and their first-visit dates are synced to your account.
 
 ## Use
 
@@ -11,25 +11,29 @@ npm run build    # outputs dist/, deploy as a static site
 npm test
 ```
 
-1. Pick who you are (Hugo, Thomas, Vincent or Seb), then drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your existing map.
-2. Your map and stats (squadrats, Übersquadrat, Yard, squadratinhos, Übersquadratinho, Yardinho) appear on your card. Click an Über/Yard row to zoom on it.
-3. Use **Square planner** to pick a player, tile type, and target size (1–100). Suggest a square to find the position with the most visited tiles anywhere in that player's map. Missing tiles are orange; place the square on the map or use the buttons or keyboard arrows (while the planner or map is focused) to move it one tile at a time. The count updates when that player's map changes. This does not calculate a route or account for accessibility.
+1. With shared sync configured, create an account, confirm your email if required, sign in, and choose a unique username. Without Supabase, pick a local player instead.
+2. Drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your map.
+3. Send a friend request using their username. They must accept it before either of you can see the other's map. Either person can remove the friendship.
+4. Your map and stats (squadrats, Übersquadrat, Yard, squadratinhos, Übersquadratinho, Yardinho) appear on your card. Click an Über/Yard row to zoom on it.
+5. Use **Square planner** to pick a player, tile type, and target size (1–100). Suggest a square to find the position with the most visited tiles anywhere in that player's map. Missing tiles are orange; place the square on the map or use the buttons or keyboard arrows (while the planner or map is focused) to move it one tile at a time. The count updates when that player's map changes. This does not calculate a route or account for accessibility.
 
-Imported tiles are saved in the browser's local storage. With Supabase configured (below), each import is also shared: everyone sees everyone's maps and stats, and open pages update live.
+Your own imported tiles are saved in browser local storage. With Supabase configured (below), they are also shared only with accepted friends. Updates are checked on focus and every 30 seconds.
 
 ## Shared sync with Supabase
 
-1. Create a free project at supabase.com.
-2. In **SQL Editor**, run [supabase/schema.sql](./supabase/schema.sql) after changing `CHANGE_ME` to a group passcode of your choice.
-3. In **Project Settings → API**, copy the project URL and the `anon` public key.
-4. On Vercel (**Project → Settings → Environment Variables**) add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, then redeploy. For local development, copy `.env.example` to `.env.local` and fill it in.
-5. Share the passcode with your friends. The app asks for it the first time someone shares a map, then remembers it in that browser.
+1. Create a Supabase project, or back up your existing project before migrating.
+2. In **SQL Editor**, run [supabase/accounts.sql](./supabase/accounts.sql). This revokes API access to the old public maps and shared-passcode function, but keeps the old table for the project administrator. Existing deployed versions will no longer be able to sync. Do not run the obsolete `schema.sql` or `allow-seb.sql`.
+3. Enable email/password sign-in in **Authentication → Providers**. Configure the site URL and allowed redirect URLs for your deployed site in **Authentication → URL Configuration**. Configure email confirmation and a suitable email provider and rate limits for your deployment.
+4. In **Project Settings → API**, copy the project URL and the `anon` public key. Never put the service-role key in the application.
+5. On Vercel (**Project → Settings → Environment Variables**) add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, then redeploy. For local development, copy `.env.example` to `.env.local` and fill it in.
+6. Each existing user creates their own account and reimports their files. Old maps and local caches are not automatically assigned to accounts. Send and accept friend requests to share again.
 
-Everyone can read all maps, but writes only go through the `save_map` function, which checks the passcode. Without these variables the app works in local-only mode.
+The database checks the signed-in user and accepted friendship for every shared-map read. Direct API access to the map and friendship tables is disabled. Usernames are discoverable by people who know them; do not use sensitive information in a username. A username cannot currently be changed, and password recovery and self-service account deletion are not yet available in the app.
 
-For an existing Supabase project created before Seb was added, run [supabase/allow-seb.sql](./supabase/allow-seb.sql) in the SQL Editor. Deploying the website alone does not update the database function. This migration leaves the existing passcode and maps unchanged; do not re-run the full schema with `CHANGE_ME`, as it resets the passcode.
+**Privacy:** the old shared maps were publicly readable until the migration is applied; it cannot undo previous access or erase copies already downloaded. Removing a friend stops future database reads immediately but cannot erase data they have already seen or saved. An open page refreshes its displayed friends on focus or within 30 seconds while online. Local storage remains on the device after sign-out, including any legacy caches; use a trusted device and clear site data when appropriate. The base-map provider receives requests for the viewed map area.
 
-If sharing fails, the imported map remains on the importing browser and is retried when the page loads or regains focus. It is not available to friends until sharing succeeds. Imports lost from browser storage before this protection was installed need to be imported again.
+After signing in, the first remote read must succeed before importing, to avoid replacing an existing map with an incomplete one. If sharing fails after an import, the imported map remains on the importing browser and is retried on subsequent syncs. It is not available to friends until sharing succeeds. Imports lost from browser storage before this protection was installed need to be imported again.
+Avoid importing at the same time on multiple devices: concurrent saves can overwrite one another.
 
 ## Deploy
 

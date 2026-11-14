@@ -6,7 +6,7 @@ body { display: flex; }
 h1 { margin: 0 0 8px; font-size: 22px; }
 h2 { margin: 16px 0 6px; font-size: 14px; text-transform: uppercase; color: #555; }
 label { display: block; margin: 4px 0; }
-input[type="text"], input[type="number"], select { width: 100%; padding: 6px; margin-top: 2px; }
+input[type="text"], input[type="email"], input[type="password"], input[type="number"], select { width: 100%; padding: 6px; margin-top: 2px; }
 .hint { color: #666; font-size: 12px; }
 #drop { border: 2px dashed #aaa; border-radius: 8px; padding: 18px; text-align: center; cursor: pointer; margin: 8px 0; }
 #drop.over { border-color: #2a9d8f; background: #e8f6f4; }
@@ -15,7 +15,7 @@ input[type="text"], input[type="number"], select { width: 100%; padding: 6px; ma
 .top h1 { margin: 0; }
 .btn { border: 1px solid #2a9d8f; background: #2a9d8f; color: #fff; border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
 .btn:hover { background: #238a7e; }
-.players { display: flex; gap: 6px; }
+.players { display: flex; flex-wrap: wrap; gap: 6px; }
 .player { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 4px; border: 2px solid #ccc; border-radius: 999px; background: #fff; color: #666; font-weight: 600; font-size: 13px; cursor: pointer; }
 .player .swatch { width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
 .player[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 18%, #fff); color: #111; }
@@ -33,6 +33,8 @@ input[type="text"], input[type="number"], select { width: 100%; padding: 6px; ma
 .card tr.go td:first-child { text-decoration: underline dotted; }
 .empty { color: #666; font-size: 13px; padding: 8px 0; }
 .plan-actions, .plan-move { display: flex; gap: 6px; margin: 8px 0; }
+.friend-row { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+.friend-row span { flex: 1; overflow-wrap: anywhere; }
 .plan-move button { min-width: 36px; }
 #plan-result { margin: 8px 0; }
 #plan-place[aria-pressed="true"] { outline: 2px solid #2a9d8f; }

@@ -7,9 +7,12 @@ const api = vi.hoisted(() => ({
   subscribe: vi.fn(),
   setPlanner: vi.fn(),
   setPlannerPlacement: vi.fn(),
+  account: { id: "account-1", name: "Seb" } as { id: string; name: string } | null,
 }));
 
 vi.mock("./sync", () => ({ fetchMaps: api.fetchMaps, saveMap: api.saveMap, subscribe: api.subscribe, syncEnabled: true }));
+vi.mock("./account", () => ({ setupAccount: (onReady: (id: string, name: string) => Promise<void>) =>
+  api.account ? onReady(api.account.id, api.account.name) : Promise.resolve() }));
 vi.mock("./map", () => ({
   MapView: class {
     render() {}
@@ -76,12 +79,13 @@ describe("import and sync", () => {
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key),
     });
-    vi.stubGlobal("window", { addEventListener: (type: string, handler: EventListener) => windowListeners.set(type, handler) });
+    vi.stubGlobal("window", { addEventListener: (type: string, handler: EventListener) => windowListeners.set(type, handler), setInterval: vi.fn() });
     vi.stubGlobal("Element", Element);
     vi.stubGlobal("Worker", ImportWorker);
     vi.stubGlobal("alert", vi.fn());
-    api.fetchMaps.mockReset().mockResolvedValue([{ name: "Seb", tiles: encodeTiles(new Set([3])) }]);
+    api.fetchMaps.mockReset().mockResolvedValue([{ id: "account-1", username: "Seb", tiles: encodeTiles(new Set([3])) }]);
     api.saveMap.mockReset().mockRejectedValue(new Error("unknown name"));
+    api.account = { id: "account-1", name: "Seb" };
     api.subscribe.mockReset();
     api.setPlanner.mockReset();
     api.setPlannerPlacement.mockReset();
@@ -95,11 +99,11 @@ describe("import and sync", () => {
     elements.get("files")!.listeners.get("change")!(new Event("change"));
     ImportWorker.current.onmessage({ data: { type: "done", tiles: [1, 2], dates: [], processed: 1, skipped: 0 } });
     await flush();
-    const saved = JSON.parse(storage.get("squadrats.local")!);
+    const saved = JSON.parse(storage.get("squadrats.local.account-1")!);
     expect(saved.find((file: { name: string }) => file.name === "Seb").pending).toBe(true);
 
     await load();
-    const restored = JSON.parse(storage.get("squadrats.local")!);
+    const restored = JSON.parse(storage.get("squadrats.local.account-1")!);
     const seb = restored.find((file: { name: string }) => file.name === "Seb");
     expect(seb.pending).toBe(true);
     expect(seb.tiles17).toBe(encodeTiles(new Set([1, 2, 3])));
@@ -107,25 +111,40 @@ describe("import and sync", () => {
 
     api.saveMap.mockResolvedValue(undefined);
     await load();
-    const shared = JSON.parse(storage.get("squadrats.local")!).find((file: { name: string }) => file.name === "Seb");
+    const shared = JSON.parse(storage.get("squadrats.local.account-1")!).find((file: { name: string }) => file.name === "Seb");
     expect(shared.tiles17).toBe(encodeTiles(new Set([1, 2, 3])));
     expect(shared.pending).toBeUndefined();
   });
 
   it("ignores an older remote read that finishes after a successful import", async () => {
-    let finish!: (maps: { name: string; tiles: string }[]) => void;
-    api.fetchMaps.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    let finish!: (maps: { id: string; username: string; tiles: string }[]) => void;
     api.saveMap.mockResolvedValue(undefined);
     await load();
+    api.fetchMaps.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    windowListeners.get("focus")!(new Event("focus"));
     elements.get("files")!.files = [{} as File];
     elements.get("files")!.listeners.get("change")!(new Event("change"));
     ImportWorker.current.onmessage({ data: { type: "done", tiles: [1, 2], dates: [], processed: 1, skipped: 0 } });
     await flush();
-    finish([{ name: "Seb", tiles: encodeTiles(new Set([3])) }]);
+    finish([{ id: "account-1", username: "Seb", tiles: encodeTiles(new Set([4])) }]);
     await flush();
-    const seb = JSON.parse(storage.get("squadrats.local")!).find((file: { name: string }) => file.name === "Seb");
-    expect(seb.tiles17).toBe(encodeTiles(new Set([1, 2])));
+    const seb = JSON.parse(storage.get("squadrats.local.account-1")!).find((file: { name: string }) => file.name === "Seb");
+    expect(seb.tiles17).toBe(encodeTiles(new Set([1, 2, 3])));
     expect(seb.pending).toBeUndefined();
+  });
+
+  it("waits for the first remote map before allowing an import", async () => {
+    let finish!: (maps: { id: string; username: string; tiles: string }[]) => void;
+    api.fetchMaps.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await load();
+    expect(elements.get("open-import")!.disabled).toBe(true);
+    finish([{ id: "account-1", username: "Seb", tiles: encodeTiles(new Set([3])) }]);
+    await flush();
+    expect(elements.get("open-import")!.disabled).toBe(false);
+    elements.get("files")!.files = [{} as File];
+    elements.get("files")!.listeners.get("change")!(new Event("change"));
+    ImportWorker.current.onmessage({ data: { type: "done", tiles: [1], dates: [], processed: 1, skipped: 0 } });
+    expect(JSON.parse(storage.get("squadrats.local.account-1")!)[0].tiles17).toBe(encodeTiles(new Set([1, 3])));
   });
 
   it("retries an empty replacement without restoring the previous shared map", async () => {
@@ -136,7 +155,7 @@ describe("import and sync", () => {
     ImportWorker.current.onmessage({ data: { type: "done", tiles: [], dates: [], processed: 1, skipped: 0 } });
     await flush();
     await load();
-    const seb = JSON.parse(storage.get("squadrats.local")!).find((file: { name: string }) => file.name === "Seb");
+    const seb = JSON.parse(storage.get("squadrats.local.account-1")!).find((file: { name: string }) => file.name === "Seb");
     expect(seb.tiles17).toBe("");
     expect(seb.pending).toBe(true);
   });
@@ -158,8 +177,8 @@ describe("import and sync", () => {
     finish();
     await flush();
     expect(api.saveMap).toHaveBeenCalledTimes(2);
-    expect(api.saveMap).toHaveBeenLastCalledWith("Seb", encodeTiles(new Set([1, 2, 3])));
-    const seb = JSON.parse(storage.get("squadrats.local")!).find((file: { name: string }) => file.name === "Seb");
+    expect(api.saveMap).toHaveBeenLastCalledWith(encodeTiles(new Set([1, 2, 3])));
+    const seb = JSON.parse(storage.get("squadrats.local.account-1")!).find((file: { name: string }) => file.name === "Seb");
     expect(seb.pending).toBeUndefined();
   });
 
@@ -205,5 +224,39 @@ describe("import and sync", () => {
     expect(api.setPlanner.mock.calls.length).toBe(count);
     elements.get("plan-clear")!.listeners.get("click")!(new Event("click"));
     expect(key("ArrowUp", target).defaultPrevented).toBe(false);
+  });
+
+  it("removes a former friend's map on refresh without saving it locally", async () => {
+    api.fetchMaps.mockResolvedValue([
+      { id: "account-1", username: "Seb", tiles: encodeTiles(new Set([3])) },
+      { id: "account-2", username: "friend", tiles: encodeTiles(new Set([5])) },
+    ]);
+    await load();
+    expect(elements.get("players")!.innerHTML).toContain("friend");
+    expect(storage.get("squadrats.local.account-1")).not.toContain("friend");
+    api.fetchMaps.mockResolvedValue([{ id: "account-1", username: "Seb", tiles: encodeTiles(new Set([3])) }]);
+    windowListeners.get("focus")!(new Event("focus"));
+    await flush();
+    expect(elements.get("players")!.innerHTML).not.toContain("friend");
+    expect(elements.get("plan-person")!.innerHTML).not.toContain("friend");
+  });
+
+  it("does not claim legacy or another account's saved maps", async () => {
+    storage.set("squadrats.local", JSON.stringify([{ version: 1, name: "Seb", tiles17: encodeTiles(new Set([99])) }]));
+    storage.set("squadrats.local.account-2", JSON.stringify([{ version: 1, name: "Seb", tiles17: encodeTiles(new Set([98])), pending: true }]));
+    await load();
+    const saved = JSON.parse(storage.get("squadrats.local.account-1")!);
+    expect(saved[0].tiles17).toBe(encodeTiles(new Set([3])));
+    expect(api.saveMap).not.toHaveBeenCalled();
+  });
+
+  it("does not allow importing before signing in", async () => {
+    api.account = null;
+    await load();
+    expect(elements.get("open-import")!.disabled).toBe(true);
+    elements.get("files")!.files = [{} as File];
+    elements.get("files")!.listeners.get("change")!(new Event("change"));
+    expect(api.saveMap).not.toHaveBeenCalled();
+    expect(elements.get("progress")!.textContent).toContain("Sign in");
   });
 });

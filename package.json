@@ -18,6 +18,7 @@
     "topojson-client": "^3.1.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "@types/geojson": "^7946.0.16",
     "@types/topojson-client": "^3.1.5",
     "typescript": "^7.0.2",
