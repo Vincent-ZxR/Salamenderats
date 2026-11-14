@@ -6,7 +6,7 @@ body { display: flex; }
 h1 { margin: 0 0 8px; font-size: 22px; }
 h2 { margin: 16px 0 6px; font-size: 14px; text-transform: uppercase; color: #555; }
 label { display: block; margin: 4px 0; }
-input[type="text"], select { width: 100%; padding: 6px; margin-top: 2px; }
+input[type="text"], input[type="number"], select { width: 100%; padding: 6px; margin-top: 2px; }
 .hint { color: #666; font-size: 12px; }
 #drop { border: 2px dashed #aaa; border-radius: 8px; padding: 18px; text-align: center; cursor: pointer; margin: 8px 0; }
 #drop.over { border-color: #2a9d8f; background: #e8f6f4; }
@@ -32,6 +32,10 @@ input[type="text"], select { width: 100%; padding: 6px; margin-top: 2px; }
 .card tr.go:hover { background: #eef6ff; }
 .card tr.go td:first-child { text-decoration: underline dotted; }
 .empty { color: #666; font-size: 13px; padding: 8px 0; }
+.plan-actions, .plan-move { display: flex; gap: 6px; margin: 8px 0; }
+.plan-move button { min-width: 36px; }
+#plan-result { margin: 8px 0; }
+#plan-place[aria-pressed="true"] { outline: 2px solid #2a9d8f; }
 dialog { border: 0; border-radius: 12px; padding: 16px; width: min(420px, 92vw); box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
 dialog::backdrop { background: rgba(0, 0, 0, .4); }
 .dlg-head { display: flex; justify-content: space-between; align-items: center; }

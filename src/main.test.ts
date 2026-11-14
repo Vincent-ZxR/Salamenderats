@@ -5,13 +5,17 @@ const api = vi.hoisted(() => ({
   fetchMaps: vi.fn(),
   saveMap: vi.fn(),
   subscribe: vi.fn(),
+  setPlanner: vi.fn(),
+  setPlannerPlacement: vi.fn(),
 }));
 
-vi.mock("./sync", () => ({ ...api, syncEnabled: true }));
+vi.mock("./sync", () => ({ fetchMaps: api.fetchMaps, saveMap: api.saveMap, subscribe: api.subscribe, syncEnabled: true }));
 vi.mock("./map", () => ({
   MapView: class {
     render() {}
     fitTo() {}
+    setPlanner = api.setPlanner;
+    setPlannerPlacement = api.setPlannerPlacement;
   },
 }));
 
@@ -20,9 +24,14 @@ class Element {
   checked = true;
   innerHTML = "";
   textContent = "";
+  hidden = false;
+  disabled = false;
   files: File[] = [];
   listeners = new Map<string, (event: Event) => void>();
   addEventListener(type: string, handler: (event: Event) => void) { this.listeners.set(type, handler); }
+  closest(_selector: string): Element | null { return null; }
+  setAttribute() {}
+  get valueAsNumber() { return Number(this.value); }
 }
 
 class ImportWorker {
@@ -39,6 +48,7 @@ const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve()
 describe("import and sync", () => {
   let elements: Map<string, Element>;
   let storage: Map<string, string>;
+  let windowListeners: Map<string, EventListener>;
 
   async function load() {
     elements = new Map();
@@ -46,6 +56,8 @@ describe("import and sync", () => {
       if (!elements.has(id)) {
         const element = new Element();
         if (id === "name") element.value = "Seb";
+        if (id === "plan-size") element.value = "23";
+        if (id === "plan-type") element.value = "17";
         if (id === "replace") element.checked = false;
         elements.set(id, element);
       }
@@ -58,17 +70,21 @@ describe("import and sync", () => {
 
   beforeEach(() => {
     storage = new Map();
+    windowListeners = new Map();
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key),
     });
-    vi.stubGlobal("window", { addEventListener: vi.fn() });
+    vi.stubGlobal("window", { addEventListener: (type: string, handler: EventListener) => windowListeners.set(type, handler) });
+    vi.stubGlobal("Element", Element);
     vi.stubGlobal("Worker", ImportWorker);
     vi.stubGlobal("alert", vi.fn());
     api.fetchMaps.mockReset().mockResolvedValue([{ name: "Seb", tiles: encodeTiles(new Set([3])) }]);
     api.saveMap.mockReset().mockRejectedValue(new Error("unknown name"));
     api.subscribe.mockReset();
+    api.setPlanner.mockReset();
+    api.setPlannerPlacement.mockReset();
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -145,5 +161,49 @@ describe("import and sync", () => {
     expect(api.saveMap).toHaveBeenLastCalledWith("Seb", encodeTiles(new Set([1, 2, 3])));
     const seb = JSON.parse(storage.get("squadrats.local")!).find((file: { name: string }) => file.name === "Seb");
     expect(seb.pending).toBeUndefined();
+  });
+
+  it("plans for the chosen player, adjusts placement and updates after an import", async () => {
+    await load();
+    elements.get("plan-size")!.value = "2";
+    elements.get("plan-find")!.listeners.get("click")!(new Event("click"));
+    expect(elements.get("plan-result")!.textContent).toBe("Seb: 1 of 4 visited · 3 missing");
+    const initial = api.setPlanner.mock.lastCall![0];
+    expect(initial.square).toEqual({ x: 0, y: 2, size: 2, z: 17 });
+    elements.get("plan-place")!.listeners.get("click")!(new Event("click"));
+    const place = api.setPlannerPlacement.mock.lastCall![0];
+    place(0, 0);
+    expect(elements.get("plan-result")!.textContent).toBe("Seb: 0 of 4 visited · 4 missing");
+    elements.get("files")!.files = [{} as File];
+    elements.get("files")!.listeners.get("change")!(new Event("change"));
+    ImportWorker.current.onmessage({ data: { type: "done", tiles: [1], dates: [], processed: 1, skipped: 0 } });
+    expect(elements.get("plan-result")!.textContent).toBe("Seb: 1 of 4 visited · 3 missing");
+  });
+
+  it("moves an active square one tile with arrow keys without hijacking form controls", async () => {
+    await load();
+    elements.get("plan-size")!.value = "2";
+    elements.get("plan-find")!.listeners.get("click")!(new Event("click"));
+    const target = new Element();
+    vi.spyOn(target, "closest").mockImplementation((selector) => selector === ".planner, #map" ? target : null);
+    const key = (name: string, element: Element) => {
+      const event = new Event("keydown", { cancelable: true });
+      Object.defineProperties(event, { key: { value: name }, target: { value: element } });
+      windowListeners.get("keydown")!(event);
+      return event;
+    };
+    expect(key("ArrowRight", target).defaultPrevented).toBe(true);
+    expect(api.setPlanner.mock.lastCall![0].square).toEqual({ x: 1, y: 2, size: 2, z: 17 });
+    expect(elements.get("plan-result")!.textContent).toBe("Seb: 0 of 4 visited · 4 missing");
+    expect(key("ArrowDown", target).defaultPrevented).toBe(true);
+    expect(api.setPlanner.mock.lastCall![0].square).toEqual({ x: 1, y: 3, size: 2, z: 17 });
+
+    const field = new Element();
+    vi.spyOn(field, "closest").mockReturnValue(field);
+    const count = api.setPlanner.mock.calls.length;
+    expect(key("ArrowUp", field).defaultPrevented).toBe(false);
+    expect(api.setPlanner.mock.calls.length).toBe(count);
+    elements.get("plan-clear")!.listeners.get("click")!(new Event("click"));
+    expect(key("ArrowUp", target).defaultPrevented).toBe(false);
   });
 });

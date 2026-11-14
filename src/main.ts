@@ -2,6 +2,7 @@ import "./style.css";
 import { decodeTiles, encodeTiles, parsePersonFile, toPersonFile, type PersonFile } from "./codec";
 import { MapView } from "./map";
 import { FRIENDS, makePerson, mergeInto, mixColor, type Person } from "./person";
+import { missingTiles, suggestSquare, type Square } from "./planner";
 import { fetchMaps, saveMap, subscribe, syncEnabled } from "./sync";
 import { reconcilePerson, restoreSelection } from "./sync-state";
 import type { FirstSeen } from "./tiles";
@@ -63,6 +64,7 @@ function refresh(fit?: Person) {
   current = combinedPerson();
   renderPlayers();
   renderStats();
+  renderPlanner();
   void view.render(
     people,
     $<HTMLInputElement>("show14").checked,
@@ -193,6 +195,116 @@ nameSelect.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</
 const savedMe = localStorage.getItem(ME_KEY);
 if (savedMe && FRIENDS.some((f) => f.name === savedMe)) nameSelect.value = savedMe;
 nameSelect.addEventListener("change", () => localStorage.setItem(ME_KEY, nameSelect.value));
+
+const planPerson = $<HTMLSelectElement>("plan-person");
+const planType = $<HTMLSelectElement>("plan-type");
+const planSize = $<HTMLInputElement>("plan-size");
+const planPlace = $<HTMLButtonElement>("plan-place");
+planPerson.innerHTML = FRIENDS.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+planPerson.value = nameSelect.value;
+let plan: { person: string; square: Square } | null = null;
+let placing = false;
+
+function stopPlacing(): void {
+  placing = false;
+  planPlace.setAttribute("aria-pressed", "false");
+  planPlace.textContent = "Place on map";
+  view.setPlannerPlacement(null);
+}
+
+function renderPlanner(fit = false): void {
+  if (!plan) return;
+  const person = people.find((p) => p.name === plan!.person);
+  if (!person) throw new Error(`Unknown planner player: ${plan.person}`);
+  const tiles = plan.square.z === 17 ? person.tiles17 : person.tiles14;
+  const missing = missingTiles(tiles, plan.square);
+  const total = plan.square.size ** 2;
+  $("plan-result").textContent = `${person.name}: ${total - missing.length} of ${total} visited · ${missing.length} missing`;
+  void view.setPlanner({ square: plan.square, missing }, fit);
+}
+
+function clearPlanner(): void {
+  plan = null;
+  stopPlacing();
+  $<HTMLElement>("plan-controls").hidden = true;
+  $<HTMLButtonElement>("plan-clear").disabled = true;
+  $("plan-result").textContent = "Choose a player and suggest a square.";
+  void view.setPlanner(null);
+}
+
+$("plan-find").addEventListener("click", () => {
+  const size = planSize.valueAsNumber;
+  if (!Number.isInteger(size) || size < 1 || size > 100) {
+    $("plan-result").textContent = "Enter a whole number between 1 and 100.";
+    return;
+  }
+  const person = people.find((p) => p.name === planPerson.value);
+  if (!person) {
+    $("plan-result").textContent = "Choose a player.";
+    return;
+  }
+  const z = planType.value === "14" ? 14 : 17;
+  const square = suggestSquare(z === 17 ? person.tiles17 : person.tiles14, size, z);
+  if (!square) {
+    clearPlanner();
+    $("plan-result").textContent = `${person.name} has no visited tiles to suggest a square.`;
+    return;
+  }
+  stopPlacing();
+  plan = { person: person.name, square };
+  $<HTMLElement>("plan-controls").hidden = false;
+  $<HTMLButtonElement>("plan-clear").disabled = false;
+  renderPlanner(true);
+});
+
+for (const id of ["plan-person", "plan-type", "plan-size"]) {
+  $(id).addEventListener("change", clearPlanner);
+}
+$("plan-clear").addEventListener("click", clearPlanner);
+planPlace.addEventListener("click", () => {
+  if (!plan) return;
+  if (placing) {
+    stopPlacing();
+    return;
+  }
+  placing = true;
+  planPlace.setAttribute("aria-pressed", "true");
+  planPlace.textContent = "Click the map (cancel)";
+  view.setPlannerPlacement((x, y) => {
+    if (!plan) return;
+    plan.square = { ...plan.square, x, y };
+    stopPlacing();
+    renderPlanner();
+  });
+});
+function movePlanner(dx: number, dy: number): void {
+  if (!plan) return;
+  const limit = 2 ** plan.square.z - plan.square.size;
+  const x = Math.max(0, Math.min(limit, plan.square.x + dx));
+  const y = Math.max(0, Math.min(limit, plan.square.y + dy));
+  plan.square = { ...plan.square, x, y };
+  renderPlanner();
+}
+
+$("plan-controls").addEventListener("click", (e) => {
+  const button = (e.target as HTMLElement).closest<HTMLElement>("[data-dx]");
+  if (button) movePlanner(Number(button.dataset.dx), Number(button.dataset.dy));
+});
+
+window.addEventListener("keydown", (e) => {
+  if (!plan || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !(e.target instanceof Element)) return;
+  if (!e.target.closest(".planner, #map") || e.target.closest("input, select, textarea, [contenteditable], a")) return;
+  const direction = {
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+  }[e.key];
+  if (!direction) return;
+  e.preventDefault();
+  e.stopPropagation();
+  movePlanner(direction[0], direction[1]);
+}, true);
 
 // Import
 const progress = $("progress");

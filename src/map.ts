@@ -4,6 +4,7 @@ import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { mixColor, type Person } from "./person";
+import type { Square } from "./planner";
 import { keyOf, toTileCoords, tileToLonLat, xOf, yOf, Z_SHIFT, Z_SQUADRAT } from "./tiles";
 
 // Bundlers don't emit MapLibre's worker file, so point it at an explicitly bundled copy.
@@ -55,6 +56,8 @@ export class MapView {
   private show14 = true;
   private show17 = true;
   private fc14 = new WeakMap<Person, FC>();
+  private planner: { square: Square; missing: number[] } | null = null;
+  private placePlanner: ((x: number, y: number) => void) | null = null;
   private popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "hover-tip" });
 
   constructor(el: HTMLElement) {
@@ -106,7 +109,22 @@ export class MapView {
     this.map.on("mousemove", (e) => this.showTooltip(e.lngLat));
     this.map.on("mouseout", () => this.popup.remove());
     this.map.on("dragstart", () => this.popup.remove());
-    this.map.on("click", (e) => this.zoomOnArea(e.lngLat));
+    this.map.on("click", (e) => {
+      if (this.placePlanner && this.planner) {
+        const [fx, fy] = toTileCoords(e.lngLat.lat, e.lngLat.lng);
+        const { z, size } = this.planner.square;
+        const scale = 2 ** (17 - z);
+        const world = 2 ** z;
+        const x = ((Math.floor(fx / scale) % world) + world) % world;
+        const y = Math.floor(fy / scale);
+        this.placePlanner(
+          Math.max(0, Math.min(world - size, x - Math.floor(size / 2))),
+          Math.max(0, Math.min(world - size, y - Math.floor(size / 2))),
+        );
+        return;
+      }
+      this.zoomOnArea(e.lngLat);
+    });
   }
 
   /** Zooms on the densest block of squadrats of the colored area (finest checked layer) under the click. */
@@ -254,6 +272,50 @@ export class MapView {
       }
     }
     this.updateZ17();
+    this.drawPlanner();
+  }
+
+  setPlannerPlacement(handler: ((x: number, y: number) => void) | null): void {
+    this.placePlanner = handler;
+    this.map.getCanvas().style.cursor = handler ? "crosshair" : "";
+  }
+
+  async setPlanner(plan: { square: Square; missing: number[] } | null, fit = false): Promise<void> {
+    this.planner = plan;
+    await this.loaded;
+    this.drawPlanner();
+    if (fit && this.planner === plan && plan) {
+      const { x, y, size, z } = plan.square;
+      this.fitToBox({ minX: x, minY: y, maxX: x + size - 1, maxY: y + size - 1 }, z);
+    }
+  }
+
+  private drawPlanner(): void {
+    for (const id of ["planner-missing-line", "planner-missing-fill", "planner-boundary"]) {
+      if (this.map.getLayer(id)) this.map.removeLayer(id);
+    }
+    for (const id of ["planner-square", "planner-missing"]) {
+      if (this.map.getSource(id)) this.map.removeSource(id);
+    }
+    if (!this.planner) return;
+    const { square, missing } = this.planner;
+    this.map.addSource("planner-square", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [tileFeature(square.x, square.y, square.z, square.size)] },
+    });
+    this.map.addSource("planner-missing", { type: "geojson", data: toCollection(missing, square.z) });
+    this.map.addLayer({
+      id: "planner-missing-fill", type: "fill", source: "planner-missing",
+      paint: { "fill-color": "#f58220", "fill-opacity": 0.55 },
+    });
+    this.map.addLayer({
+      id: "planner-missing-line", type: "line", source: "planner-missing",
+      paint: { "line-color": "#a84900", "line-width": 1, "line-opacity": 0.8 },
+    });
+    this.map.addLayer({
+      id: "planner-boundary", type: "line", source: "planner-square",
+      paint: { "line-color": "#a84900", "line-width": 3 },
+    });
   }
 
   async highlightYard(tiles: number[], z: number, box: NonNullable<Person["stats14"]["maxClusterBox"]>, color: string): Promise<void> {
@@ -276,6 +338,7 @@ export class MapView {
       source: "yard-outline",
       paint: { "line-color": color, "line-width": 4 },
     });
+    this.drawPlanner();
     this.fitToBox(box, z);
   }
 
@@ -299,6 +362,7 @@ export class MapView {
       source,
       paint: { "line-color": color, "line-width": 5 },
     });
+    this.drawPlanner();
     this.fitToBox({ minX: at.x, minY: at.y, maxX: at.x + size - 1, maxY: at.y + size - 1 }, z);
   }
 
@@ -342,6 +406,7 @@ export class MapView {
       filter: ["==", "$type", "Point"],
       paint: { "circle-radius": 8, "circle-color": "#d6182c", "circle-stroke-color": "#ffffff", "circle-stroke-width": 3 },
     });
+    this.drawPlanner();
     this.fitToBox(box, z);
   }
 
@@ -452,7 +517,9 @@ export class MapView {
   fitToBox(box: { minX: number; minY: number; maxX: number; maxY: number }, z: number): void {
     const [w, n] = tileToLonLat(box.minX, box.minY, z);
     const [e, s] = tileToLonLat(box.maxX + 1, box.maxY + 1, z);
-    this.map.fitBounds([[w, s], [e, n]], { padding: 150, duration: 600, maxZoom: 16 });
+    const canvas = this.map.getCanvas();
+    const padding = Math.min(150, Math.floor(Math.min(canvas.clientWidth, canvas.clientHeight) / 4));
+    this.map.fitBounds([[w, s], [e, n]], { padding, duration: 600, maxZoom: 16 });
   }
 
   /** Removes the yard/uber overlay and zooms on the block of tiles with the most visited tiles. */

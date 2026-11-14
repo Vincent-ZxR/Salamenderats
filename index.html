@@ -23,6 +23,35 @@
       </section>
 
       <section>
+        <h2>Square planner</h2>
+        <div class="card planner">
+          <label>Player <select id="plan-person"></select></label>
+          <label>Tile type
+            <select id="plan-type">
+              <option value="17">Squadratinhos</option>
+              <option value="14">Squadrats</option>
+            </select>
+          </label>
+          <label>Square size <input id="plan-size" type="number" min="1" max="100" step="1" value="23" /></label>
+          <div class="plan-actions">
+            <button id="plan-find" class="btn" type="button">Suggest square</button>
+            <button id="plan-clear" type="button" disabled>Clear</button>
+          </div>
+          <div id="plan-result" class="hint" role="status">Choose a player and suggest a square.</div>
+          <div id="plan-controls" hidden>
+            <button id="plan-place" type="button" aria-pressed="false">Place on map</button>
+            <div class="plan-move" aria-label="Move square one tile">
+              <button type="button" data-dx="0" data-dy="-1" aria-label="Move north">↑</button>
+              <button type="button" data-dx="-1" data-dy="0" aria-label="Move west">←</button>
+              <button type="button" data-dx="0" data-dy="1" aria-label="Move south">↓</button>
+              <button type="button" data-dx="1" data-dy="0" aria-label="Move east">→</button>
+            </div>
+            <div class="hint">Orange tiles are missing for the selected player, regardless of visible layers. Place on map centers the square on the tile you click. Use the buttons or keyboard arrows while the planner or map is focused to move one tile.</div>
+          </div>
+        </div>
+      </section>
+
+      <section>
         <h2>Layers</h2>
         <label><input id="show14" type="checkbox" checked /> Squadrats</label>
         <label><input id="show17" type="checkbox" checked /> Squadratinhos</label>

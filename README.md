@@ -13,6 +13,7 @@ npm test
 
 1. Pick who you are (Hugo, Thomas, Vincent or Seb), then drop your Strava archive (`.zip`) or GPX / FIT / TCX files (`.gz` accepted). Importing again merges new activities into your existing map.
 2. Your map and stats (squadrats, Übersquadrat, Yard, squadratinhos, Übersquadratinho, Yardinho) appear on your card. Click an Über/Yard row to zoom on it.
+3. Use **Square planner** to pick a player, tile type, and target size (1–100). Suggest a square to find the position with the most visited tiles anywhere in that player's map. Missing tiles are orange; place the square on the map or use the buttons or keyboard arrows (while the planner or map is focused) to move it one tile at a time. The count updates when that player's map changes. This does not calculate a route or account for accessibility.
 
 Imported tiles are saved in the browser's local storage. With Supabase configured (below), each import is also shared: everyone sees everyone's maps and stats, and open pages update live.
 
