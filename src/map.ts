@@ -5,6 +5,7 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { mixColor, type Person } from "./person";
 import type { Square } from "./planner";
+import type { Coordinate } from "./route-planner";
 import { keyOf, toTileCoords, tileToLonLat, xOf, yOf, Z_SHIFT, Z_SQUADRAT } from "./tiles";
 
 // Bundlers don't emit MapLibre's worker file, so point it at an explicitly bundled copy.
@@ -58,6 +59,9 @@ export class MapView {
   private fc14 = new WeakMap<Person, FC>();
   private planner: { square: Square; missing: number[] } | null = null;
   private placePlanner: ((x: number, y: number) => void) | null = null;
+  private placeRouteStart: ((point: Coordinate) => void) | null = null;
+  private routeStart: Coordinate | null = null;
+  private route: Coordinate[] | null = null;
   private popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "hover-tip" });
 
   constructor(el: HTMLElement) {
@@ -110,6 +114,10 @@ export class MapView {
     this.map.on("mouseout", () => this.popup.remove());
     this.map.on("dragstart", () => this.popup.remove());
     this.map.on("click", (e) => {
+      if (this.placeRouteStart) {
+        this.placeRouteStart([((e.lngLat.lng + 180) % 360 + 360) % 360 - 180, e.lngLat.lat]);
+        return;
+      }
       if (this.placePlanner && this.planner) {
         const [fx, fy] = toTileCoords(e.lngLat.lat, e.lngLat.lng);
         const { z, size } = this.planner.square;
@@ -277,7 +285,50 @@ export class MapView {
 
   setPlannerPlacement(handler: ((x: number, y: number) => void) | null): void {
     this.placePlanner = handler;
-    this.map.getCanvas().style.cursor = handler ? "crosshair" : "";
+    this.map.getCanvas().style.cursor = handler || this.placeRouteStart ? "crosshair" : "";
+  }
+
+  setRouteStartPlacement(handler: ((point: Coordinate) => void) | null): void {
+    this.placeRouteStart = handler;
+    this.map.getCanvas().style.cursor = handler || this.placePlanner ? "crosshair" : "";
+  }
+
+  async setRouteStart(point: Coordinate | null): Promise<void> {
+    this.routeStart = point;
+    await this.loaded;
+    this.drawRoute();
+  }
+
+  async setRoute(coordinates: Coordinate[] | null, fit = false): Promise<void> {
+    this.route = coordinates;
+    await this.loaded;
+    this.drawRoute();
+    if (fit && coordinates && this.route === coordinates) {
+      const bounds = new maplibregl.LngLatBounds();
+      for (const point of coordinates) bounds.extend(point);
+      this.map.fitBounds(bounds, { padding: 45, maxZoom: 15 });
+    }
+  }
+
+  private drawRoute(): void {
+    for (const id of ["route-line", "route-start"]) {
+      if (this.map.getLayer(id)) this.map.removeLayer(id);
+    }
+    if (this.map.getSource("route-preview")) this.map.removeSource("route-preview");
+    const features: Feature[] = [];
+    if (this.route) features.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: this.route } });
+    if (this.routeStart) features.push({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: this.routeStart } });
+    if (!features.length) return;
+    this.map.addSource("route-preview", { type: "geojson", data: { type: "FeatureCollection", features } });
+    this.map.addLayer({
+      id: "route-line", type: "line", source: "route-preview", filter: ["==", "$type", "LineString"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#1748c8", "line-width": 5, "line-opacity": 0.9 },
+    });
+    this.map.addLayer({
+      id: "route-start", type: "circle", source: "route-preview", filter: ["==", "$type", "Point"],
+      paint: { "circle-radius": 7, "circle-color": "#1748c8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 },
+    });
   }
 
   async setPlanner(plan: { square: Square; missing: number[] } | null, fit = false): Promise<void> {
@@ -297,7 +348,10 @@ export class MapView {
     for (const id of ["planner-square", "planner-missing"]) {
       if (this.map.getSource(id)) this.map.removeSource(id);
     }
-    if (!this.planner) return;
+    if (!this.planner) {
+      this.drawRoute();
+      return;
+    }
     const { square, missing } = this.planner;
     this.map.addSource("planner-square", {
       type: "geojson",
@@ -316,6 +370,7 @@ export class MapView {
       id: "planner-boundary", type: "line", source: "planner-square",
       paint: { "line-color": "#a84900", "line-width": 3 },
     });
+    this.drawRoute();
   }
 
   async highlightYard(tiles: number[], z: number, box: NonNullable<Person["stats14"]["maxClusterBox"]>, color: string): Promise<void> {

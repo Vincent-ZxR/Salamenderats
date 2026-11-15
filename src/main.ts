@@ -3,6 +3,7 @@ import { decodeTiles, encodeTiles, parsePersonFile, toPersonFile, type PersonFil
 import { MapView } from "./map";
 import { FRIENDS, makePerson, mergeInto, mixColor, type Person } from "./person";
 import { missingTiles, suggestSquare, type Square } from "./planner";
+import { setupRoutePlanner } from "./route-planner-ui";
 import { fetchMaps, saveMap, syncEnabled } from "./sync";
 import { setupAccount } from "./account";
 import { reconcilePerson, restoreSelection } from "./sync-state";
@@ -96,6 +97,11 @@ let current: Person | null = null;
 let activeKind: string | null = null;
 
 function refresh(fit?: Person) {
+  const selectedRoutePlayer = people.find((person) => person.name === planPerson.value);
+  if (selectedRoutePlayer !== routePlayer) {
+    routePlanner.invalidate();
+    routePlayer = selectedRoutePlayer;
+  }
   activeKind = null;
   current = combinedPerson();
   renderPlayers();
@@ -260,6 +266,12 @@ planPerson.innerHTML = syncEnabled ? "" : FRIENDS.map((f) => `<option value="${f
 planPerson.value = nameSelect.value;
 let plan: { person: string; square: Square } | null = null;
 let placing = false;
+let routePlayer: Person | undefined;
+const routePlanner = setupRoutePlanner(view, () => ({
+  person: people.find((person) => person.name === planPerson.value),
+  z: planType.value === "14" ? 14 : 17,
+  square: plan?.square ?? null,
+}), stopPlacing);
 
 function stopPlacing(): void {
   placing = false;
@@ -280,6 +292,7 @@ function renderPlanner(fit = false): void {
 }
 
 function clearPlanner(): void {
+  routePlanner.invalidate();
   plan = null;
   stopPlacing();
   $<HTMLElement>("plan-controls").hidden = true;
@@ -306,6 +319,7 @@ $("plan-find").addEventListener("click", () => {
     $("plan-result").textContent = `${person.name} has no visited tiles to suggest a square.`;
     return;
   }
+  routePlanner.invalidate();
   stopPlacing();
   plan = { person: person.name, square };
   $<HTMLElement>("plan-controls").hidden = false;
@@ -323,11 +337,13 @@ planPlace.addEventListener("click", () => {
     stopPlacing();
     return;
   }
+  routePlanner.stopPlacement();
   placing = true;
   planPlace.setAttribute("aria-pressed", "true");
   planPlace.textContent = "Click the map (cancel)";
   view.setPlannerPlacement((x, y) => {
     if (!plan) return;
+    routePlanner.invalidate();
     plan.square = { ...plan.square, x, y };
     stopPlacing();
     renderPlanner();
@@ -338,6 +354,7 @@ function movePlanner(dx: number, dy: number): void {
   const limit = 2 ** plan.square.z - plan.square.size;
   const x = Math.max(0, Math.min(limit, plan.square.x + dx));
   const y = Math.max(0, Math.min(limit, plan.square.y + dy));
+  if (x !== plan.square.x || y !== plan.square.y) routePlanner.invalidate();
   plan.square = { ...plan.square, x, y };
   renderPlanner();
 }

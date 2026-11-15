@@ -108,6 +108,39 @@
             <div class="hint">Orange tiles are missing for the selected player, regardless of visible layers. Place on map centers the square on the tile you click. Use the buttons or keyboard arrows while the planner or map is focused to move one tile.</div>
           </div>
         </div>
+        <h2>Route optimizer</h2>
+        <div class="card planner">
+          <label>openrouteservice API key <input id="route-key" type="password" autocomplete="off" /></label>
+          <div class="hint">A free <a href="https://account.heigit.org/" target="_blank" rel="noopener noreferrer">openrouteservice account and API key</a> are required. The key stays in this page; route coordinates are sent to openrouteservice.</div>
+          <label>Activity
+            <select id="route-profile">
+              <option value="cycling-regular">Cycling</option>
+              <option value="foot-walking">Walking / running</option>
+            </select>
+          </label>
+          <label>Route type
+            <select id="route-mode">
+              <option value="loop">Loop</option>
+              <option value="open">Open route</option>
+            </select>
+          </label>
+          <label>Maximum distance (km) <input id="route-distance" type="number" min="0.5" max="100" step="0.5" value="20" /></label>
+          <div class="plan-actions">
+            <button id="route-place" type="button" aria-pressed="false">Choose start on map</button>
+          </div>
+          <div id="route-start-label" class="hint">No start selected.</div>
+          <div class="plan-actions">
+            <button id="route-single" class="btn" type="button">Optimize one route</button>
+            <button id="route-square" type="button">Plan selected square</button>
+            <button id="route-cancel" type="button" hidden>Cancel</button>
+          </div>
+          <div class="hint">Uses the player and tile type above. Square planning uses the selected square. Searches are approximate, limited to 12 requests for one route or 24 for a square; results may not be optimal or complete.</div>
+          <div id="route-status" class="hint status" role="status"></div>
+          <div id="route-results" hidden>
+            <label>Preview route <select id="route-choice"></select></label>
+            <button id="route-download" type="button">Download GPX</button>
+          </div>
+        </div>
       </section>
 
       <section id="section-layers" hidden>

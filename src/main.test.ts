@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTiles } from "./codec";
+import { keyOf, toTileCoords } from "./tiles";
 
 const api = vi.hoisted(() => ({
   fetchMaps: vi.fn(),
@@ -7,6 +8,9 @@ const api = vi.hoisted(() => ({
   subscribe: vi.fn(),
   setPlanner: vi.fn(),
   setPlannerPlacement: vi.fn(),
+  setRouteStartPlacement: vi.fn(),
+  setRouteStart: vi.fn(),
+  setRoute: vi.fn(),
   account: { id: "account-1", name: "Seb" } as { id: string; name: string } | null,
 }));
 
@@ -19,6 +23,9 @@ vi.mock("./map", () => ({
     fitTo() {}
     setPlanner = api.setPlanner;
     setPlannerPlacement = api.setPlannerPlacement;
+    setRouteStartPlacement = api.setRouteStartPlacement;
+    setRouteStart = api.setRouteStart;
+    setRoute = api.setRoute;
   },
 }));
 
@@ -33,6 +40,7 @@ class Element {
   attributes = new Map<string, string>();
   listeners = new Map<string, (event: Event) => void>();
   addEventListener(type: string, handler: (event: Event) => void) { this.listeners.set(type, handler); }
+  append(_child: Element) {}
   closest(_selector: string): Element | null { return null; }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   get valueAsNumber() { return Number(this.value); }
@@ -47,7 +55,7 @@ class ImportWorker {
   terminate() {}
 }
 
-const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+const flush = async () => { for (let i = 0; i < 100; i++) await Promise.resolve(); };
 
 describe("import and sync", () => {
   let elements: Map<string, Element>;
@@ -56,12 +64,15 @@ describe("import and sync", () => {
 
   async function load() {
     elements = new Map();
-    vi.stubGlobal("document", { getElementById: (id: string) => {
+    vi.stubGlobal("document", { createElement: () => new Element(), getElementById: (id: string) => {
       if (!elements.has(id)) {
         const element = new Element();
         if (id === "name") element.value = "Seb";
         if (id === "plan-size") element.value = "23";
         if (id === "plan-type") element.value = "17";
+        if (id === "route-profile") element.value = "cycling-regular";
+        if (id === "route-mode") element.value = "loop";
+        if (id === "route-distance") element.value = "5";
         if (id === "replace") element.checked = false;
         elements.set(id, element);
       }
@@ -90,6 +101,9 @@ describe("import and sync", () => {
     api.subscribe.mockReset();
     api.setPlanner.mockReset();
     api.setPlannerPlacement.mockReset();
+    api.setRouteStartPlacement.mockReset();
+    api.setRouteStart.mockReset();
+    api.setRoute.mockReset();
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -225,6 +239,33 @@ describe("import and sync", () => {
     elements.get("files")!.listeners.get("change")!(new Event("change"));
     ImportWorker.current.onmessage({ data: { type: "done", tiles: [1], dates: [], processed: 1, skipped: 0 } });
     expect(elements.get("plan-result")!.textContent).toBe("Seb: 1 of 4 visited · 3 missing");
+  });
+
+  it("plans the selected square and invalidates routes when the square moves", async () => {
+    const [x, y] = toTileCoords(50.85, 4.35).map(Math.floor);
+    api.fetchMaps.mockResolvedValue([{ id: "account-1", username: "Seb", tiles: encodeTiles(new Set([keyOf(x, y)])) }]);
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const coordinates = JSON.parse(String(init.body)).coordinates;
+      return { ok: true, json: async () => ({
+        features: [{ geometry: { type: "LineString", coordinates }, properties: { summary: { distance: 1000 } } }],
+      }) };
+    }));
+    await load();
+    elements.get("plan-size")!.value = "2";
+    elements.get("plan-find")!.listeners.get("click")!(new Event("click"));
+    elements.get("route-key")!.value = "test-key";
+    elements.get("route-place")!.listeners.get("click")!(new Event("click"));
+    api.setRouteStartPlacement.mock.lastCall![0]([4.35, 50.85]);
+    elements.get("route-square")!.listeners.get("click")!(new Event("click"));
+    await flush();
+    expect(elements.get("route-results")!.hidden).toBe(false);
+    expect(elements.get("route-status")!.textContent).toContain("0 target tiles remain");
+    expect(api.setRoute).toHaveBeenCalledWith(expect.any(Array), true);
+
+    elements.get("plan-place")!.listeners.get("click")!(new Event("click"));
+    api.setPlannerPlacement.mock.lastCall![0](x, y);
+    expect(elements.get("route-results")!.hidden).toBe(true);
+    expect(api.setRoute).toHaveBeenLastCalledWith(null);
   });
 
   it("moves an active square one tile with arrow keys without hijacking form controls", async () => {
