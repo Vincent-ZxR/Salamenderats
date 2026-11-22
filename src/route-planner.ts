@@ -28,7 +28,7 @@ export interface RoutePlan {
   rejectionReason?: string;
 }
 
-const ENDPOINT = "https://api.openrouteservice.org/v2/directions";
+const ENDPOINT = "https://api.heigit.org/openrouteservice/v2/directions";
 const EARTH = 6_371_000;
 const MAX_REQUESTS = 24;
 const CANDIDATES = 4;
@@ -76,12 +76,18 @@ function isCoordinate(value: unknown): value is Coordinate {
 class CandidateError extends Error {}
 
 async function requestRoute(options: RouteOptions, body: object): Promise<Route> {
-  const response = await fetch(`${ENDPOINT}/${options.profile}/geojson`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: options.key },
-    body: JSON.stringify({ ...body, instructions: false }),
-    signal: options.signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${ENDPOINT}/${options.profile}/geojson`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: options.key },
+      body: JSON.stringify({ ...body, instructions: false }),
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (options.signal?.aborted || !(error instanceof TypeError)) throw error;
+    throw new Error("Could not reach openrouteservice. Check your internet connection, browser network restrictions, and the service's availability.");
+  }
   if (!response.ok) {
     if (response.status === 400 || response.status === 404) {
       throw new CandidateError(`Routing service rejected a candidate (HTTP ${response.status}).`);

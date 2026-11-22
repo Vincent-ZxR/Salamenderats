@@ -22,6 +22,8 @@ Route planning uses bounded heuristics, not an exhaustive search: routes are not
 
 The API key is entered in the page and is not saved by the app. Each routing request sends the start and candidate route coordinates to openrouteservice; consult its privacy policy before using a sensitive location. Imported tracks and the full visited-tile set are not sent to the routing service.
 
+If route calculation cannot reach openrouteservice, check your internet connection, browser network restrictions and service availability. For HTTP authentication or quota errors, check the API key and usage in your HeiGIT account.
+
 Use the sidebar menu to switch between **Overview**, **Plan**, **Layers**, and, when shared sync is enabled, **Friends** and **Account**. Player filters stay visible across sections. Expand **Detailed stats** for map highlights and explanations, or hide the menu to give the map more room.
 
 Your own imported tiles are saved in browser local storage. With Supabase configured (below), they are also shared only with accepted friends. Updates are checked on focus and every 30 seconds.

@@ -34,7 +34,7 @@ describe("route planning", () => {
     expect(result.routes[0].distance).toBe(2000);
     expect(result.rejected).toBe(1);
     expect(result.requests).toBe(12);
-    expect(fetchMock.mock.calls[0][0]).toContain("cycling-regular/geojson");
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.heigit.org/openrouteservice/v2/directions/cycling-regular/geojson");
     expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBe("test-key");
   });
 
@@ -57,7 +57,8 @@ describe("route planning", () => {
 
   it("requests varied round trips and rejects a route that does not return", async () => {
     let calls = 0;
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson");
       const body = JSON.parse(String(init.body));
       expect(body.coordinates).toEqual([start]);
       expect(body.options.round_trip.length).toBeLessThan(options.distance);
@@ -82,6 +83,14 @@ describe("route planning", () => {
   it("surfaces quota errors instead of presenting a partial plan as complete", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => response([], 0, 429)));
     await expect(planSingle(options, new Set())).rejects.toThrow("HTTP 429");
+  });
+
+  it("explains network failures without treating them as rejected candidates", async () => {
+    const fetchMock = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(planSingle({ ...options, profile: "foot-walking", mode: "loop", distance: 10000 }, new Set()))
+      .rejects.toThrow("Could not reach openrouteservice");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("stops an aborted search without issuing another request", async () => {
