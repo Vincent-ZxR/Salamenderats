@@ -26,6 +26,8 @@ If route calculation cannot reach openrouteservice, check your internet connecti
 
 Use the sidebar menu to switch between **Overview**, **Plan**, **Layers**, and, when shared sync is enabled, **Friends** and **Account**. Player filters stay visible across sections. Expand **Detailed stats** for map highlights and explanations, or hide the menu to give the map more room.
 
+Under **Layers → Player colors**, choose a preset color for each player to make their map areas easier to distinguish. These preferences are saved in this browser, separately for each signed-in account; they are not shared with friends. Overlapping areas use a blend of the selected colors.
+
 Your own imported tiles are saved in browser local storage. With Supabase configured (below), they are also shared only with accepted friends. Updates are checked on focus and every 30 seconds.
 
 ## Shared sync with Supabase

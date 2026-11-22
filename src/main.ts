@@ -1,7 +1,7 @@
 import "./style.css";
 import { decodeTiles, encodeTiles, parsePersonFile, toPersonFile, type PersonFile } from "./codec";
 import { MapView } from "./map";
-import { FRIENDS, makePerson, mergeInto, mixColor, type Person } from "./person";
+import { distinctPlayerColor, FRIENDS, makePerson, mergeInto, mixColor, PLAYER_COLORS, type Person } from "./person";
 import { missingTiles, suggestSquare, type Square } from "./planner";
 import { setupRoutePlanner } from "./route-planner-ui";
 import { fetchMaps, saveMap, syncEnabled } from "./sync";
@@ -20,6 +20,8 @@ const pending = new Set<string>();
 const view = new MapView($("map"));
 let ownName: string | null = null;
 let selectionKey = "squadrats.selected";
+let colorsKey = "squadrats.colors";
+const colorPreferences = new Map<string, string>();
 let readyToImport = !syncEnabled;
 
 const sections = {
@@ -74,6 +76,31 @@ function loadSelection(persist = true) {
   } catch (err) {
     console.warn("Could not restore player selection", err);
   }
+}
+
+function loadColors() {
+  colorPreferences.clear();
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(colorsKey) ?? "{}");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Invalid player colors");
+    for (const [name, color] of Object.entries(saved)) {
+      if (typeof color === "string" && PLAYER_COLORS.some((option) => option.value === color)) {
+        colorPreferences.set(name, color);
+      }
+    }
+  } catch (err) {
+    console.warn("Could not restore player colors", err);
+  }
+}
+
+function renderColors() {
+  $("player-colors").innerHTML = people.map((p) => `
+    <label class="player-color">${p.name}
+      <select data-color-name="${p.name}" style="--c:${p.color}" aria-label="Color for ${p.name}">
+        ${PLAYER_COLORS.map((option) =>
+          `<option value="${option.value}"${option.value === p.color ? " selected" : ""}>${option.name}</option>`).join("")}
+      </select>
+    </label>`).join("");
 }
 
 let combinedCache: { sources: Person[]; person: Person } | null = null;
@@ -209,6 +236,22 @@ $("players").addEventListener("click", (e) => {
     selected: people.filter((p) => p.visible).map((p) => p.name),
     known: people.map((p) => p.name),
   }));
+  refresh();
+});
+
+$("player-colors").addEventListener("change", (e) => {
+  const select = e.target as HTMLSelectElement;
+  const person = people.find((p) => p.name === select.dataset.colorName);
+  if (!person || !PLAYER_COLORS.some((option) => option.value === select.value)) return;
+  person.color = select.value;
+  select.style.setProperty("--c", person.color);
+  colorPreferences.set(person.name, person.color);
+  try {
+    localStorage.setItem(colorsKey, JSON.stringify(Object.fromEntries(colorPreferences)));
+  } catch {
+    alert("Could not save player colors in this browser. Your changes will last only for this session.");
+  }
+  combinedCache = null;
   refresh();
 });
 
@@ -497,8 +540,7 @@ async function pull(): Promise<boolean> {
   for (const entry of remote) {
     let idx = people.findIndex((person) => person.name === entry.username);
     if (idx === -1) {
-      const palette = ["#ff00cc", "#00a6c4", "#c79c00", "#e43b3b", "#6a4cf0", "#2a9d55"];
-      const color = palette[[...entry.id].reduce((hash, c) => (hash * 31 + c.charCodeAt(0)) >>> 0, 0) % palette.length];
+      const color = colorPreferences.get(entry.username) ?? distinctPlayerColor(people.map((p) => p.color));
       people.push(makePerson(entry.username, color, new Set()));
       idx = people.length - 1;
       changed = true;
@@ -524,6 +566,7 @@ async function pull(): Promise<boolean> {
     planPerson.innerHTML = people.map((p) => `<option value="${p.name}">${p.name}</option>`).join("");
     planPerson.value = people.some((p) => p.name === previous) ? previous : ownName ?? "";
     loadSelection();
+    renderColors();
     saveLocal();
     refresh();
   }
@@ -574,7 +617,10 @@ function init() {
       ownName = username;
       localKey = `squadrats.local.${id}`;
       selectionKey = `squadrats.selected.${id}`;
-      people.push(makePerson(username, "#2a9d8f", new Set()));
+      colorsKey = `squadrats.colors.${id}`;
+      loadColors();
+      people.push(makePerson(username, colorPreferences.get(username) ?? "#2a9d8f", new Set()));
+      renderColors();
       nameSelect.innerHTML = `<option value="${username}">${username}</option>`;
       nameSelect.value = username;
       nameSelect.disabled = true;
@@ -592,6 +638,9 @@ function init() {
     });
     return;
   }
+  loadColors();
+  for (const person of people) person.color = colorPreferences.get(person.name) ?? person.color;
+  renderColors();
   restoreLocal();
   loadSelection();
   const me = people.find((p) => p.name === nameSelect.value);

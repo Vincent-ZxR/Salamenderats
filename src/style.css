@@ -27,6 +27,8 @@ input[type="text"], input[type="email"], input[type="password"], input[type="num
 .player .swatch { width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
 .player[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 18%, #fff); color: #111; }
 .player[aria-pressed="true"] .swatch { background: var(--c); }
+.player-color { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.player-color select { width: 140px; border-left: 12px solid var(--c); }
 button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }
 .menu { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; margin-top: 18px; border: 1px solid #dce5e3; border-radius: 10px; background: #eaf1ef; }
 .menu button { flex: 1; border: 0; border-radius: 6px; padding: 8px; background: transparent; color: #425956; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }

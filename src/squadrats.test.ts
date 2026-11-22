@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { decodeKeys, decodeTiles, encodeKeys, encodeTiles } from "./codec";
 import { parseGpx, parseTcx, virtualActivityFiles } from "./parse";
+import { mixColor } from "./person";
 import { computeStats } from "./stats";
 import { addSegment, addTrack, keyOf, toSquadrats, toTileCoords } from "./tiles";
+
+describe("player colors", () => {
+  it("uses the chosen colors for overlaps while preserving legacy default blends", () => {
+    const hugo = { name: "Hugo", color: "#ff00cc" };
+    const vincent = { name: "Vincent", color: "#ffd400" };
+    expect(mixColor([hugo, vincent])).toBe("#ff7a1a");
+    expect(mixColor([hugo, { ...vincent, color: "#0072b2" }])).toBe("#8039bf");
+  });
+});
 
 describe("tiles", () => {
   it("maps Brussels to the known zoom-14 tile", () => {

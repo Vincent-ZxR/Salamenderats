@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   setRouteStartPlacement: vi.fn(),
   setRouteStart: vi.fn(),
   setRoute: vi.fn(),
+  render: vi.fn(),
   account: { id: "account-1", name: "Seb" } as { id: string; name: string } | null,
 }));
 
@@ -19,7 +20,7 @@ vi.mock("./account", () => ({ setupAccount: (onReady: (id: string, name: string)
   api.account ? onReady(api.account.id, api.account.name) : Promise.resolve() }));
 vi.mock("./map", () => ({
   MapView: class {
-    render() {}
+    render = api.render;
     fitTo() {}
     setPlanner = api.setPlanner;
     setPlannerPlacement = api.setPlannerPlacement;
@@ -38,6 +39,8 @@ class Element {
   disabled = false;
   files: File[] = [];
   attributes = new Map<string, string>();
+  dataset: Record<string, string> = {};
+  style = { setProperty: vi.fn() };
   listeners = new Map<string, (event: Event) => void>();
   addEventListener(type: string, handler: (event: Event) => void) { this.listeners.set(type, handler); }
   append(_child: Element) {}
@@ -106,6 +109,7 @@ describe("import and sync", () => {
     api.setRouteStartPlacement.mockReset();
     api.setRouteStart.mockReset();
     api.setRoute.mockReset();
+    api.render.mockReset();
   });
 
   afterEach(() => vi.unstubAllGlobals());
@@ -359,6 +363,33 @@ describe("import and sync", () => {
     await flush();
     expect(elements.get("players")!.innerHTML).not.toContain("friend");
     expect(elements.get("plan-person")!.innerHTML).not.toContain("friend");
+  });
+
+  it("chooses distinct friend colors and restores customized colors on reload and sync", async () => {
+    api.fetchMaps.mockResolvedValue([
+      { id: "account-1", username: "Seb", tiles: encodeTiles(new Set([3])) },
+      { id: "account-2", username: "friend", tiles: encodeTiles(new Set([3])) },
+    ]);
+    await load();
+    expect(elements.get("players")!.innerHTML).toContain("--c:#2a9d8f");
+    expect(elements.get("players")!.innerHTML).toContain("--c:#ff00cc");
+
+    const select = new Element();
+    select.dataset.colorName = "friend";
+    select.value = "#0072b2";
+    const event = new Event("change");
+    Object.defineProperty(event, "target", { value: select });
+    elements.get("player-colors")!.listeners.get("change")!(event);
+    expect(JSON.parse(storage.get("squadrats.colors.account-1")!)).toEqual({ friend: "#0072b2" });
+    expect(elements.get("players")!.innerHTML).toContain("--c:#0072b2");
+    expect(api.render.mock.lastCall![4].color).toBe("#1588a1");
+
+    await load();
+    expect(elements.get("players")!.innerHTML).toContain("--c:#0072b2");
+    expect(elements.get("player-colors")!.innerHTML).toContain('value="#0072b2" selected');
+    windowListeners.get("focus")!(new Event("focus"));
+    await flush();
+    expect(elements.get("players")!.innerHTML).toContain("--c:#0072b2");
   });
 
   it("does not claim legacy or another account's saved maps", async () => {
