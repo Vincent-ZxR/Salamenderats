@@ -134,11 +134,13 @@
             <button id="route-square" type="button">Plan selected square</button>
             <button id="route-cancel" type="button" hidden>Cancel</button>
           </div>
-          <div class="hint">Uses the player and tile type above. Square planning uses the selected square. Searches are approximate, limited to 12 requests for one route or 24 for a square; results may not be optimal or complete.</div>
+          <div class="hint">Uses the player and tile type above. Square planning uses the selected square and looks for the fewest runs from the start that cover its missing tiles. Searches are approximate, limited to 12 requests for one route or 30 for a square; results may not be optimal or complete.</div>
           <div id="route-status" class="hint status" role="status"></div>
           <div id="route-results" hidden>
             <label>Preview route <select id="route-choice"></select></label>
+            <label id="route-show-all-label" hidden><input id="route-show-all" type="checkbox" /> Show all suggested routes on the map</label>
             <button id="route-download" type="button">Download GPX</button>
+            <div class="hint">GPX download uses the selected route.</div>
           </div>
         </div>
       </section>

@@ -15,69 +15,111 @@ function response(coordinates: Coordinate[], distance = 1000, status = 200): Res
   }), { status, headers: { "Content-Type": "application/json" } });
 }
 
+function metres(coordinates: Coordinate[]): number {
+  let total = 0;
+  for (let i = 1; i < coordinates.length; i++) {
+    const [lon0, lat0] = coordinates[i - 1], [lon1, lat1] = coordinates[i];
+    const rad = Math.PI / 180;
+    const dx = (lon1 - lon0) * rad * Math.cos(lat0 * rad), dy = (lat1 - lat0) * rad;
+    total += 6_371_000 * Math.hypot(dx, dy);
+  }
+  return total;
+}
+
+/** A router that follows the requested waypoints in straight lines, optionally stretched like real streets. */
+function router(stretch = 1) {
+  return vi.fn(async (_url: string, init: RequestInit) => {
+    const coordinates = JSON.parse(String(init.body)).coordinates as Coordinate[];
+    return response(coordinates, metres(coordinates) * stretch);
+  });
+}
+
+const [x, y] = toTileCoords(start[1], start[0]).map(Math.floor);
+const tilesAt = (cells: [number, number][]) => cells.map(([dx, dy]) => keyOf(x + dx, y + dy));
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("route planning", () => {
-  it("chooses the candidate with the most new tiles, respecting the distance limit and route profile", async () => {
-    let calls = 0;
-    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      calls++;
-      const body = JSON.parse(String(init.body));
-      expect(body.coordinates[0]).toEqual(start);
-      if (calls === 1) return response([start, [4.36, 50.85]], 6000);
-      if (calls === 2) return response([start, [4.355, 50.85]], 2000);
-      return response([start, [4.351, 50.85]], 1000);
-    });
+  it("plans one route from the nearby unvisited tiles within the distance limit", async () => {
+    const fetchMock = router();
     vi.stubGlobal("fetch", fetchMock);
-    const result = await planSingle(options, new Set());
+    const visited = new Set<number>();
+    for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) visited.add(keyOf(x + dx, y + dy));
+    const result = await planSingle({ ...options, mode: "loop", distance: 8000 }, visited);
     expect(result.routes).toHaveLength(1);
-    expect(result.routes[0].distance).toBe(2000);
-    expect(result.rejected).toBe(1);
-    expect(result.requests).toBe(12);
+    const route = result.routes[0];
+    expect(route.distance).toBeLessThanOrEqual(8000);
+    expect([...route.tiles].filter((tile) => !visited.has(tile)).length).toBeGreaterThan(20);
+    expect(result.requests).toBeLessThanOrEqual(12);
     expect(fetchMock.mock.calls[0][0]).toBe("https://api.heigit.org/openrouteservice/v2/directions/cycling-regular/geojson");
     expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBe("test-key");
+    const waypoints = JSON.parse(String(fetchMock.mock.calls[0][1].body)).coordinates as Coordinate[];
+    expect(waypoints[0]).toEqual(start);
+    expect(waypoints[waypoints.length - 1]).toEqual(start);
   });
 
-  it("counts square coverage cumulatively, uses loops and respects the request budget", async () => {
-    const [x, y] = toTileCoords(start[1], start[0]).map(Math.floor);
-    const missing = [keyOf(x + 2, y), keyOf(x - 2, y), keyOf(x, y + 2)];
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
-      const coordinates = JSON.parse(String(init.body)).coordinates as Coordinate[];
-      expect(coordinates[0]).toEqual(start);
-      expect(coordinates[coordinates.length - 1]).toEqual(start);
-      return response(coordinates);
-    }));
-    const result = await planSquare({ ...options, mode: "loop" }, missing);
-    const covered = new Set(result.routes.flatMap((route) => [...route.tiles]));
-    expect(result.remaining).toBe(missing.filter((tile) => !covered.has(tile)).length);
+  it("covers separate clusters with one run each when they cannot share a run", async () => {
+    vi.stubGlobal("fetch", router());
+    const missing = tilesAt([[20, 0], [21, 0], [22, 0], [-20, 0], [-21, 0], [-22, 0], [0, 20], [0, 21], [0, 22]]);
+    const result = await planSquare({ ...options, mode: "loop", distance: 10000 }, missing);
     expect(result.remaining).toBe(0);
-    expect(result.routes.length).toBeGreaterThan(0);
-    expect(result.requests).toBeLessThanOrEqual(24);
+    expect(result.routes).toHaveLength(3);
+    for (const route of result.routes) expect(route.distance).toBeLessThanOrEqual(10000);
+    expect(result.requests).toBeLessThanOrEqual(30);
   });
 
-  it("requests varied round trips and rejects a route that does not return", async () => {
-    let calls = 0;
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson");
-      const body = JSON.parse(String(init.body));
-      expect(body.coordinates).toEqual([start]);
-      expect(body.options.round_trip.length).toBeLessThan(options.distance);
-      expect(body.options.round_trip.seed).toBe(++calls);
-      const end: Coordinate = [4.36, 50.85];
-      return response(calls === 1 ? [start, end] : [start, end, start]);
-    }));
-    const result = await planSingle({ ...options, profile: "foot-walking", mode: "loop" }, new Set());
+  it("covers a compact block in a single run", async () => {
+    vi.stubGlobal("fetch", router());
+    const missing: number[] = [];
+    for (let dx = 4; dx <= 8; dx++) for (let dy = -1; dy <= 1; dy++) missing.push(keyOf(x + dx, y + dy));
+    const result = await planSquare({ ...options, mode: "loop", distance: 8000 }, missing);
+    expect(result.remaining).toBe(0);
     expect(result.routes).toHaveLength(1);
-    expect(result.rejected).toBe(1);
   });
 
-  it("reports incomplete coverage when candidates cannot reach the target", async () => {
-    const [x, y] = toTileCoords(start[1], start[0]).map(Math.floor);
-    vi.stubGlobal("fetch", vi.fn(async () => response([start, [4.351, 50.85]], 9000)));
-    const result = await planSquare(options, [keyOf(x + 10, y)]);
+  it("recalibrates when real routes are longer than estimated and never suggests an over-long run", async () => {
+    vi.stubGlobal("fetch", router(1.8));
+    const missing: number[] = [];
+    for (let dx = 6; dx <= 9; dx++) for (let dy = 0; dy <= 3; dy++) missing.push(keyOf(x + dx, y + dy));
+    const result = await planSquare({ ...options, mode: "loop", distance: 8000 }, missing);
+    expect(result.rejected).toBeGreaterThan(0);
+    expect(result.routes.length).toBeGreaterThan(1);
+    for (const route of result.routes) expect(route.distance).toBeLessThanOrEqual(8000);
+    expect(result.remaining).toBe(0);
+  });
+
+  it("does not request tiles that are too far for the distance limit", async () => {
+    const fetchMock = router();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await planSquare(options, tilesAt([[100, 0]]));
     expect(result.routes).toHaveLength(0);
     expect(result.remaining).toBe(1);
+    expect(result.unreachable).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("drops a waypoint the service cannot snap to a road and keeps planning", async () => {
+    let calls = 0;
+    const waypoints: Coordinate[][] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const coordinates = JSON.parse(String(init.body)).coordinates as Coordinate[];
+      waypoints.push(coordinates);
+      if (++calls === 1) {
+        return new Response(JSON.stringify({ error: { code: 2010, message: "Could not find point 1: 4.36 50.85 within a radius of 350.0 meters." } }), { status: 404 });
+      }
+      return response(coordinates, metres(coordinates));
+    }));
+    const missing = tilesAt([[3, 0], [4, 0], [5, 0], [6, 0]]);
+    const result = await planSquare({ ...options, mode: "loop" }, missing);
     expect(result.rejected).toBe(1);
+    expect(result.routes.length).toBeGreaterThan(0);
+    expect(waypoints.slice(1).some((points) => points.some((point) => point[0] === waypoints[0][1][0] && point[1] === waypoints[0][1][1]))).toBe(false);
+  });
+
+  it("explains when the start is not near a road", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: "Could not find point 0: 4.35 50.85 within a radius of 350.0 meters." } }), { status: 404 })));
+    await expect(planSquare(options, tilesAt([[3, 0]]))).rejects.toThrow("near the start");
   });
 
   it("surfaces quota errors instead of presenting a partial plan as complete", async () => {
@@ -105,7 +147,6 @@ describe("route planning", () => {
   });
 
   it("exports a GPX whose reimport visits the same tiles, even for long route segments", async () => {
-    const [x, y] = toTileCoords(start[1], start[0]).map(Math.floor);
     const end = tileToLonLat(x + 20.5, y + 0.5, 17);
     vi.stubGlobal("fetch", vi.fn(async () => response([start, end])));
     const result = await planSingle(options, new Set());

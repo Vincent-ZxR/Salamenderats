@@ -21,6 +21,8 @@ export function setupRoutePlanner(
   const status = $("route-status");
   const results = $("route-results");
   const choice = $<HTMLSelectElement>("route-choice");
+  const showAll = $<HTMLInputElement>("route-show-all");
+  const showAllLabel = $("route-show-all-label");
   let start: Coordinate | null = null;
   let routes: Route[] = [];
   let controller: AbortController | null = null;
@@ -45,6 +47,7 @@ export function setupRoutePlanner(
     cancel.hidden = true;
     routes = [];
     results.hidden = true;
+    showAll.checked = false;
     if (hadResults) {
       status.textContent = "Inputs changed; calculate a new route.";
       void view.setRoute(null);
@@ -111,6 +114,7 @@ export function setupRoutePlanner(
       if (generation !== current) return;
       routes = result.routes;
       const rejected = result.rejected ? ` ${result.rejected} candidates rejected or over the distance limit. ${result.rejectionReason ?? ""}` : "";
+      const unreachable = result.unreachable ? ` ${result.unreachable} remaining tiles look out of reach within the distance limit, or have no road nearby.` : "";
       if (!routes.length) {
         status.textContent = `No route with new ${forSquare ? "target " : ""}tiles was found within the search and distance limits.${rejected}`;
         return;
@@ -128,11 +132,13 @@ export function setupRoutePlanner(
         choice.append(option);
       });
       choice.value = "0";
+      showAllLabel.hidden = routes.length < 2;
       results.hidden = false;
+      const totalKm = (routes.reduce((sum, route) => sum + route.distance, 0) / 1000).toFixed(1);
       status.textContent = forSquare
-        ? `${routes.length} suggested routes; ${result.remaining} target tiles remain. ${result.remaining ? "The objective is not complete; no conclusion about accessibility or the minimum number of outings is possible." : "Coverage is estimated; the number of outings is not guaranteed minimal."} ${result.requests} requests.${rejected}`
+        ? `${routes.length} runs, ${totalKm} km in total; ${result.remaining} target tiles remain. ${result.remaining ? "The objective is not complete; the number of runs is the fewest found, not proven minimal." : "All target tiles are covered; the number of runs is the fewest found, not proven minimal."} ${result.requests} requests.${unreachable}${rejected}`
         : `Best of ${result.requests} tested candidates; not guaranteed optimal.${rejected}`;
-      void view.setRoute(routes[0].coordinates, true);
+      void view.setRoute([routes[0].coordinates], true);
     } catch (error) {
       if (generation !== current) return;
       status.textContent = `Route calculation failed: ${error instanceof Error ? error.message : "unknown error"}`;
@@ -150,7 +156,11 @@ export function setupRoutePlanner(
   square.addEventListener("click", () => { void calculate(true); });
   choice.addEventListener("change", () => {
     const route = routes[Number(choice.value)];
-    if (route) void view.setRoute(route.coordinates, true);
+    if (route && !showAll.checked) void view.setRoute([route.coordinates], true);
+  });
+  showAll.addEventListener("change", () => {
+    const route = routes[Number(choice.value)];
+    if (route) void view.setRoute(showAll.checked ? routes.map((item) => item.coordinates) : [route.coordinates], true);
   });
   $("route-download").addEventListener("click", () => {
     const index = Number(choice.value);

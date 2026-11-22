@@ -41,6 +41,8 @@ class Element {
   listeners = new Map<string, (event: Event) => void>();
   addEventListener(type: string, handler: (event: Event) => void) { this.listeners.set(type, handler); }
   append(_child: Element) {}
+  click() {}
+  remove() {}
   closest(_selector: string): Element | null { return null; }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   get valueAsNumber() { return Number(this.value); }
@@ -64,7 +66,7 @@ describe("import and sync", () => {
 
   async function load() {
     elements = new Map();
-    vi.stubGlobal("document", { createElement: () => new Element(), getElementById: (id: string) => {
+    vi.stubGlobal("document", { body: new Element(), createElement: () => new Element(), getElementById: (id: string) => {
       if (!elements.has(id)) {
         const element = new Element();
         if (id === "name") element.value = "Seb";
@@ -266,6 +268,55 @@ describe("import and sync", () => {
     api.setPlannerPlacement.mock.lastCall![0](x, y);
     expect(elements.get("route-results")!.hidden).toBe(true);
     expect(api.setRoute).toHaveBeenLastCalledWith(null);
+  });
+
+  it("switches between all suggested routes and the selected route, then clears the preview", async () => {
+    await load();
+    const first = [[4.35, 50.85], [4.36, 50.85]] as [number, number][];
+    const second = [[4.35, 50.85], [4.35, 50.86]] as [number, number][];
+    const planner = await import("./route-planner");
+    const exportGpx = vi.spyOn(planner, "toGpx").mockReturnValue("<gpx/>");
+    vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() });
+    vi.stubGlobal("setTimeout", vi.fn());
+    const plan = vi.spyOn(planner, "planSquare").mockResolvedValue({
+      routes: [
+        { coordinates: first, distance: 1000, tiles: new Set([1]) },
+        { coordinates: second, distance: 2000, tiles: new Set([2]) },
+      ],
+      remaining: 1, requests: 2, rejected: 0,
+    });
+    elements.get("plan-size")!.value = "2";
+    elements.get("plan-find")!.listeners.get("click")!(new Event("click"));
+    elements.get("route-key")!.value = "test-key";
+    elements.get("route-place")!.listeners.get("click")!(new Event("click"));
+    api.setRouteStartPlacement.mock.lastCall![0]([4.35, 50.85]);
+    elements.get("route-square")!.listeners.get("click")!(new Event("click"));
+    await flush();
+    expect(elements.get("route-show-all-label")!.hidden).toBe(false);
+    expect(api.setRoute).toHaveBeenLastCalledWith([first], true);
+
+    const showAll = elements.get("route-show-all")!;
+    showAll.checked = true;
+    showAll.listeners.get("change")!(new Event("change"));
+    expect(api.setRoute).toHaveBeenLastCalledWith([first, second], true);
+
+    const choice = elements.get("route-choice")!;
+    choice.value = "1";
+    choice.listeners.get("change")!(new Event("change"));
+    expect(api.setRoute).toHaveBeenLastCalledWith([first, second], true);
+    elements.get("route-download")!.listeners.get("click")!(new Event("click"));
+    expect(exportGpx).toHaveBeenCalledWith(expect.objectContaining({ coordinates: second }));
+    showAll.checked = false;
+    showAll.listeners.get("change")!(new Event("change"));
+    expect(api.setRoute).toHaveBeenLastCalledWith([second], true);
+
+    showAll.checked = true;
+    elements.get("route-distance")!.listeners.get("input")!(new Event("input"));
+    expect(showAll.checked).toBe(false);
+    expect(elements.get("route-results")!.hidden).toBe(true);
+    expect(api.setRoute).toHaveBeenLastCalledWith(null);
+    plan.mockRestore();
+    exportGpx.mockRestore();
   });
 
   it("moves an active square one tile with arrow keys without hijacking form controls", async () => {

@@ -61,7 +61,7 @@ export class MapView {
   private placePlanner: ((x: number, y: number) => void) | null = null;
   private placeRouteStart: ((point: Coordinate) => void) | null = null;
   private routeStart: Coordinate | null = null;
-  private route: Coordinate[] | null = null;
+  private routes: Coordinate[][] | null = null;
   private popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "hover-tip" });
 
   constructor(el: HTMLElement) {
@@ -299,13 +299,13 @@ export class MapView {
     this.drawRoute();
   }
 
-  async setRoute(coordinates: Coordinate[] | null, fit = false): Promise<void> {
-    this.route = coordinates;
+  async setRoute(coordinates: Coordinate[][] | null, fit = false): Promise<void> {
+    this.routes = coordinates;
     await this.loaded;
     this.drawRoute();
-    if (fit && coordinates && this.route === coordinates) {
+    if (fit && coordinates?.length && this.routes === coordinates) {
       const bounds = new maplibregl.LngLatBounds();
-      for (const point of coordinates) bounds.extend(point);
+      for (const route of coordinates) for (const point of route) bounds.extend(point);
       this.map.fitBounds(bounds, { padding: 45, maxZoom: 15 });
     }
   }
@@ -316,7 +316,9 @@ export class MapView {
     }
     if (this.map.getSource("route-preview")) this.map.removeSource("route-preview");
     const features: Feature[] = [];
-    if (this.route) features.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: this.route } });
+    for (const route of this.routes ?? []) {
+      features.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: route } });
+    }
     if (this.routeStart) features.push({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: this.routeStart } });
     if (!features.length) return;
     this.map.addSource("route-preview", { type: "geojson", data: { type: "FeatureCollection", features } });
